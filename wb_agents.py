@@ -661,19 +661,47 @@ def _build_codex_model_catalog(models):
         if default_effort not in advertised and levels:
             default_effort = levels[-1]["effort"]
         display = str(entry.get("name") or entry.get("description") or mid)
+        max_out = entry.get("max_output_tokens") or entry.get("max_output")
+        try:
+            max_out = int(max_out or 0)
+        except (TypeError, ValueError):
+            max_out = 0
+        if max_out <= 0:
+            max_out = 64000
+        supports_tools = bool(entry.get("supports_tool_calls", True))
+        supports_vision = bool(
+            entry.get("supports_vision")
+            or "image" in modalities
+            or entry.get("vision"))
+        auto_compact = max(1, int(context * 0.9))
+        web_search = "text_and_image" if supports_vision else "text"
         entries.append({
             "additional_speed_tiers": [],
+            "apply_patch_tool_type": "freeform",
+            "auto_compact_token_limit": auto_compact,
             "availability_nux": None,
             "base_instructions": CODEX_BASE_INSTRUCTIONS,
             "context_window": context,
             "default_reasoning_level": default_effort if levels else "none",
             "default_reasoning_summary": "none",
+            "default_verbosity": "low",
             "description": display,
             "display_name": display,
             "effective_context_window_percent": 95,
             "experimental_supported_tools": [],
+            "include_apps_usage_instructions": True,
+            "include_plugin_usage_instructions": True,
+            "include_skills_usage_instructions": True,
             "input_modalities": modalities,
             "max_context_window": context,
+            "max_output_tokens": max_out,
+            "model_messages": {
+                "instructions_template": CODEX_BASE_INSTRUCTIONS,
+            },
+            "multi_agent_version": "v2",
+            "node_repl_auto_review_required": False,
+            "node_repl_disabled": False,
+            "prefer_websockets": False,
             "priority": 1000 + index,
             "service_tiers": [],
             "shell_type": "shell_command",
@@ -681,13 +709,16 @@ def _build_codex_model_catalog(models):
             "support_verbosity": False,
             "supported_in_api": True,
             "supported_reasoning_levels": levels,
-            "supports_image_detail_original": False,
-            "supports_parallel_tool_calls": False,
+            "supports_image_detail_original": supports_vision,
+            "supports_parallel_tool_calls": supports_tools,
             "supports_reasoning_summaries": bool(levels),
             "supports_search_tool": False,
+            "tool_mode": None,
             "truncation_policy": {"limit": 10000, "mode": "bytes"},
             "upgrade": None,
+            "use_responses_lite": False,
             "visibility": "list",
+            "web_search_tool_type": web_search,
         })
     return {"models": entries}
 
@@ -702,15 +733,17 @@ def _apply_codex(paths, ctx):
     # keep response storage off so third-party traffic is not written upstream.
     text = toml_upsert_top_key(text, "model_catalog_json", CODEX_CATALOG_FILE)
     text = toml_upsert_top_key(text, "disable_response_storage", True)
-    # env_key + auth.json covers the CLI; the desktop app instead reads the
-    # bearer token inline from experimental_bearer_token and ignores env_key.
+    # The desktop app reads the API key inline from experimental_bearer_token.
+    # Do NOT also set env_key: the app then treats env_key as the chosen auth
+    # source and drops experimental_bearer_token, so every request leaves with
+    # no bearer token and Codex loops between "optimizing conversation" and
+    # reconnecting. auth.json is still written below for the Codex CLI.
     # requires_openai_auth off stops Codex from falling back to its OpenAI
     # login for this third-party route.
     text = toml_upsert_table(text, "model_providers." + PROVIDER_ID, {
         "name": PROVIDER_NAME,
         "base_url": ctx["base_url_v1"],
         "wire_api": "responses",
-        "env_key": "OPENAI_API_KEY",
         "experimental_bearer_token": ctx["api_key"],
         "requires_openai_auth": False,
     })
@@ -1285,6 +1318,7 @@ def fetch_models_from_gateway(base_url, api_key, timeout=10):
         if out_tokens:
             try:
                 entry["max_output"] = int(out_tokens)
+                entry["max_output_tokens"] = int(out_tokens)
             except (TypeError, ValueError):
                 pass
         name = item.get("name")
@@ -1297,6 +1331,12 @@ def fetch_models_from_gateway(base_url, api_key, timeout=10):
                 str(x) for x in inputs if str(x).strip()]
         if item.get("supports_reasoning") is not None:
             entry["reasoning"] = bool(item.get("supports_reasoning"))
+        if item.get("supports_tool_calls") is not None:
+            entry["supports_tool_calls"] = bool(item.get("supports_tool_calls"))
+        if item.get("supports_vision") is not None:
+            entry["supports_vision"] = bool(item.get("supports_vision"))
+        if item.get("vision") is not None:
+            entry["vision"] = bool(item.get("vision"))
         efforts = item.get("reasoning_efforts")
         if isinstance(efforts, list):
             entry["reasoning_efforts"] = [
