@@ -36,6 +36,10 @@ restart-wb-proxy.sh
 allow-firewall.bat
 allow-firewall.command
 
+# 一键升级脚本（指向本仓库，随包分发）
+update-wb-proxy.bat
+update-wb-proxy.ps1
+
 # 随包价格快照：wb_pricing._candidate_file() 优先读它（存在即覆盖内置那份），
 # 少了它便携包只能退回 wb_pricing.py 里内嵌的旧价
 pricing/pricing.json
