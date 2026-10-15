@@ -30,10 +30,10 @@ import urllib.request
 import wb_settings
 
 # 官方仓库的 releases 接口——主路径。走 API 不抓 HTML：页面结构变了不该让检查失效。
-RELEASES_URL = "https://api.github.com/repos/ardeyouxipianyi/workbuddy2api-hub/releases"
+RELEASES_URL = "https://api.github.com/repos/cookie-kangd/workbuddy2api-agent/releases"
 # 回退路径：网页端点的 302 Location 末尾就是最新稳定版 tag。它按网页计流量，
 # 不受 API 那 60 次/小时/出口 IP 的匿名配额限制，也不需要凭据。
-LATEST_RELEASE_URL = "https://github.com/ardeyouxipianyi/workbuddy2api-hub/releases/latest"
+LATEST_RELEASE_URL = "https://github.com/cookie-kangd/workbuddy2api-agent/releases/latest"
 TAG_RE = re.compile(r"/releases/tag/([^/?#]+)")
 # 可选凭据：认证请求的配额是 5000 次/小时。只从环境变量读，绝不落盘
 # （模块头第 3 条）。

@@ -270,7 +270,7 @@ jobs:
             --version "${{ needs.version.outputs.version }}" `
             --tag "$env:TAG" `
             --runtime python `
-            --out "dist/workbuddy2api-hub-v${{ needs.version.outputs.version }}.zip"
+            --out "dist/workbuddy2api-agent-v${{ needs.version.outputs.version }}.zip"
       - name: Boot the packaged runtime
         # Presence is not enough: the archive has to start the gateway with the
         # interpreter it carries, which is what a user double-clicks.
@@ -570,7 +570,7 @@ jobs:
             --jq '"draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[].name)'
           [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ] \
             || { echo "::error::$TAG 不是 draft，立即停止"; exit 1; }
-          for want in workbuddy2api-hub-v${{ needs.version.outputs.version }}.zip \
+          for want in workbuddy2api-agent-v${{ needs.version.outputs.version }}.zip \
                       workbuddy2api_${{ needs.version.outputs.version }}-${{ needs.version.outputs.release }}_all.ipk \
                       workbuddy2api-${{ needs.version.outputs.version }}-r${{ needs.version.outputs.release }}.apk \
                       SHA256SUMS; do

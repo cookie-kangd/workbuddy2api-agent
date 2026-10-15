@@ -471,7 +471,7 @@ class PortableZipTests(unittest.TestCase):
 class ChecksumTests(unittest.TestCase):
     def test_covers_every_asset_once_in_sha256sum_format(self):
         with tempfile.TemporaryDirectory(prefix="relsum-") as directory:
-            names = ["workbuddy2api-hub-v1.6.17.zip",
+            names = ["workbuddy2api-agent-v1.6.17.zip",
                      "workbuddy2api_1.6.17-1_all.ipk",
                      "workbuddy2api-1.6.17-r1.apk"]
             assets = []
@@ -511,7 +511,7 @@ class ReleaseBodyTests(unittest.TestCase):
     def test_first_compose_has_the_marker_and_the_fixed_block(self):
         body = tools.compose_body("", self.block)
         self.assertIn(tools.MARKER, body)
-        for expected in ("## 下载说明", "workbuddy2api-hub-v1.6.17.zip",
+        for expected in ("## 下载说明", "workbuddy2api-agent-v1.6.17.zip",
                          "workbuddy2api_1.6.17-1_all.ipk",
                          "workbuddy2api-1.6.17-r1.apk", "SHA256SUMS"):
             self.assertIn(expected, body)
