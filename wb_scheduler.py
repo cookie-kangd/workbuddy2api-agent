@@ -16,7 +16,7 @@ from wb_tasks import do_cat_travel
 class Scheduler:
     def __init__(self, pool):
         self.pool = pool
-        # 对齐 Sliverkiss/workbuddy2api 官方默认排程 (CST 24小时制)
+        # 对齐官方默认排程 (CST 24小时制)
         self.checkin_hours = [9, 21]     # 每日 09:00、21:00 签到
         self.travel_hours = [9, 21]      # 每日 09:00 派出、21:00 领奖闭环
         self.keepalive_hours = [22]      # 每日 22:00 集中 Token 保活检查

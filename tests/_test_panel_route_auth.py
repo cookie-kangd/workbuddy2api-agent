@@ -4,9 +4,8 @@ A management endpoint drawn in the web panel is reached with a panel session.
 An API key is the credential for the model APIs; holding one is not a substitute
 for the panel password. The two boundaries are separate, and the dispatcher is
 where they are enforced - which is exactly why the two halves of one surface can
-drift apart. The update-status read used to answer to `_authorized()` while
-POST /updates/check was already panel-only, so a caller holding nothing but a
-key could read the running version and the release status.
+drift apart: a read that answers to `_authorized()` while its write is
+panel-only lets a caller holding nothing but an API key see the management view.
 
 This suite drives the real do_GET/do_POST over an in-memory socket, so what it
 pins is the dispatcher's behaviour rather than any handler's internals, and it
@@ -25,7 +24,7 @@ its own, neither key nor session, and is protected only by the dispatcher's
 prefix. The contract is the boundary the dispatcher enforces, not the check a
 handler remembers to add.
 
-No network: the model listing and the release checker are both injected.
+No network: the model listing is injected.
 
     python tests/_test_panel_route_auth.py
 """
@@ -50,30 +49,11 @@ import wb_settings  # noqa: E402
 KEY = "panel-route-key"
 PANEL_ONLY_MESSAGE = "panel password required"
 MODEL_ID = "injected-panel-route-model"
-LATEST = "1.6.18"
 
 
 def injected_models(realm=None):
     """The model listing, without walking anything upstream."""
     return [(MODEL_ID, {"name": "Injected"})]
-
-
-class StubUpdates(object):
-    """Stands in for the release checker: the boundary is what is under test."""
-
-    def __init__(self):
-        self.manual_checks = 0
-        self.last = {"current_version": proxy.running_version(),
-                     "latest_version": None, "update_available": False}
-
-    def check(self, manual=False):
-        self.manual_checks += 1
-        self.last = {"current_version": proxy.running_version(),
-                     "latest_version": LATEST, "update_available": True}
-        return dict(self.last)
-
-    def status(self):
-        return dict(self.last)
 
 
 class DispatchRequest(proxy.Handler):
@@ -125,16 +105,14 @@ class BoundaryCase(unittest.TestCase):
     """One management surface, one isolated settings directory per test."""
 
     # Management reads the panel draws, none of which is a model API.
-    PANEL_ONLY_GET = ("/settings", "/updates", "/logs", "/tasks", "/scheduler",
+    PANEL_ONLY_GET = ("/settings", "/logs", "/tasks", "/scheduler",
                       "/accounts", "/usage", "/pricing", "/proxy/slots",
                       "/activity/history", "/agents", "/accounts/credits/grants")
     # The same boundary on a reply that is a file rather than a document.
     PANEL_ONLY_DOWNLOAD = ("/logs/export",)
     # The management writes, each guarded by its own panel check in do_POST.
-    # /updates/check is the half of the update pair that was already correct;
-    # the two pricing writes are the ones the panel's own buttons post to.
-    PANEL_ONLY_POST = ("/updates/check", "/pricing/refresh",
-                       "/pricing/mapping", "/settings/save",
+    # The two pricing writes are the ones the panel's own buttons post to.
+    PANEL_ONLY_POST = ("/pricing/refresh", "/pricing/mapping", "/settings/save",
                        "/catalog/refresh")
 
     def setUp(self):
@@ -143,12 +121,11 @@ class BoundaryCase(unittest.TestCase):
         self.directory = self._tmp.name
         wb_settings.set_api_keys(self.directory, [
             {"id": "k1", "name": "k", "key": KEY, "enabled": True}])
-        self.updates = StubUpdates()
 
     def dispatch(self, path, headers=None, command="GET", body=b""):
         request = DispatchRequest(path, headers=headers, command=command, body=body)
         with mock.patch.multiple(proxy, ACCOUNTS_DIR=self.directory, API_KEY=None,
-                                 POOL=None, PRICING=None, UPDATES=self.updates,
+                                 POOL=None, PRICING=None,
                                  SCHEDULER=None, fetch_models=injected_models):
             return request.dispatch()
 
@@ -209,15 +186,6 @@ class PanelOnlyGetTests(BoundaryCase):
         self.assert_refused(path, {"X-Panel-Token": "not-a-session"})
         self.assert_reached(path)
 
-    def test_the_update_status_is_not_readable_with_a_key(self):
-        # The incident this contract comes from, asserted on the payload rather
-        # than the code: the release status must not appear in a refusal.
-        payload = self.assert_refused("/updates", self.key_only())
-        self.assertNotIn("current_version", json.dumps(payload))
-        body = self.assert_reached("/updates")
-        self.assertEqual(body["current_version"], proxy.running_version())
-
-
 class PanelOnlyPostTests(BoundaryCase):
     """The management writes are on the same boundary, not a special case."""
 
@@ -242,17 +210,6 @@ class PanelOnlyPostTests(BoundaryCase):
             with self.subTest(path=path):
                 self.assert_reached(path, command="POST", body=b"{}")
 
-    def test_the_manual_update_check_is_panel_only_too(self):
-        # The other half of the update pair. It takes no body, so it is also the
-        # case that proves the refusal happens before any body is read.
-        self.assert_refused("/updates/check", self.key_only(), command="POST")
-        body = self.assert_reached("/updates/check", command="POST")
-        self.assertIs(body["ok"], True)
-        self.assertEqual(body["latest_version"], LATEST)
-        self.assertEqual(self.updates.manual_checks, 1,
-                         "only the session may spend the check")
-
-
 class RemoteAgentsTests(BoundaryCase):
     """一键配置只在「浏览器和网关同一台机器」时可用（issue #246）。
 
@@ -266,7 +223,7 @@ class RemoteAgentsTests(BoundaryCase):
         request = DispatchRequest(path, headers=headers, command=command, body=body)
         request.client_address = ("192.168.1.20", 40000)
         with mock.patch.multiple(proxy, ACCOUNTS_DIR=self.directory, API_KEY=None,
-                                 POOL=None, PRICING=None, UPDATES=self.updates,
+                                 POOL=None, PRICING=None,
                                  SCHEDULER=None, fetch_models=injected_models,
                                  _SERVER_DEPLOYMENT=deployment):
             return request.dispatch()
@@ -293,7 +250,7 @@ class RemoteAgentsTests(BoundaryCase):
         # wb_agents、不做任何探测。
         request = DispatchRequest("/agents/available", headers=self.session())
         with mock.patch.multiple(proxy, ACCOUNTS_DIR=self.directory, API_KEY=None,
-                                 POOL=None, PRICING=None, UPDATES=self.updates,
+                                 POOL=None, PRICING=None,
                                  SCHEDULER=None, fetch_models=injected_models,
                                  _SERVER_DEPLOYMENT=False):
             status, payload, _raw = request.dispatch()
@@ -308,7 +265,7 @@ class RemoteAgentsTests(BoundaryCase):
         # 配置目录；环境标记必须压过来源判定。
         request = DispatchRequest("/agents/available", headers=self.session())
         with mock.patch.multiple(proxy, ACCOUNTS_DIR=self.directory, API_KEY=None,
-                                 POOL=None, PRICING=None, UPDATES=self.updates,
+                                 POOL=None, PRICING=None,
                                  SCHEDULER=None, fetch_models=injected_models,
                                  _SERVER_DEPLOYMENT=True):
             status, payload, _raw = request.dispatch()

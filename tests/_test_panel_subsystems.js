@@ -50,14 +50,12 @@ for (const name of ['function openActivityHistory', 'function closeActivityHisto
   has('签到记录', name);
 }
 
-/* ---- 3. 设置页的更新检查卡片（#262）---- */
-has('更新检查卡片', 'id="setUpdateCurrent"');
-has('更新检查开关', 'id="setUpdateCheckEnabled"');
-has('立即检查更新按钮', 'onclick="checkUpdateNow(this)"');
-for (const name of ['function loadUpdateStatus', 'function applyUpdateStatus',
-                    'function checkUpdateNow', 'function saveUpdateCheckEnabled']) {
-  has('更新检查', name);
-}
+/* ---- 3. 设置页的更新检查卡片已经移除 ----
+ * 升级走仓库自带的 update-wb-proxy.bat/ps1 脚本，面板不再自己查 GitHub：
+ * 设置页里不能再出现「更新」卡片或它的入口。 */
+assert.ok(html.indexOf('id="setUpdateCurrent"') === -1, '更新检查卡片还在设置页里');
+assert.ok(html.indexOf('checkUpdateNow') === -1, '更新检查按钮的处理函数还在');
+assert.ok(!/id="setUpdate[A-Z]/.test(html), '设置页里还残留 setUpdate* 元素');
 
 /* ---- 4. 剩余用量优先调度开关（#263/#264）---- */
 has('优先调度开关', 'id="setRemainingPriority"');

@@ -2,18 +2,17 @@ name: tests
 
 # Pushes are covered on main only; every other branch (and every pull request,
 # including ones from forks) is covered by pull_request. Listing both events
-# without the branch filter ran each update twice - two full windows + ubuntu
-# matrices for the same commit.
+# without the branch filter ran each update twice for the same commit.
 on:
   push:
     branches: [main]
-    # v* tags run the full matrix plus the tag == source version assertion
-    # below, so a release cannot ship a tag that disagrees with the code.
+    # v* tags run the matrix plus the tag == source version assertion below,
+    # so a release cannot ship a tag that disagrees with the code.
     tags: ["v*"]
   pull_request:
 
 # A second push to the same branch makes the first run pointless: cancel it
-# instead of paying for two full matrices.
+# instead of paying for the same matrix twice.
 concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
@@ -35,12 +34,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The README advertises Python 3.9+, so the floor is exercised on
-          # Linux; the primary platform (Windows) runs the current release.
-          - os: ubuntu-latest
-            python: "3.9"
-          - os: ubuntu-latest
-            python: "3.12"
+          # 这个 fork 只发 Windows 便携版，矩阵里也就只有它：Linux 腿不产出
+          # 任何要发布的东西，只是多花 runner 分钟。要加回来就在这里加一行，
+          # 发布门禁（release/matrix_legs.py）会自动跟着变严。
           - os: windows-latest
             python: "3.12"
     steps:

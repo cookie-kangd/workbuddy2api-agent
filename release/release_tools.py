@@ -186,23 +186,15 @@ def write_checksums(assets, out_path):
     return lines
 
 
-def download_block(version, zip_name, ipk_name, apk_name):
-    """The stable help section the issue pins. Keep it short and unchanged."""
+def download_block(version, zip_name):
+    """The stable download section the release body always carries."""
     return "\n".join([
         "## 下载说明",
         "",
         "- `%s`" % zip_name,
-        "  - 通用便携版（Python 源码 + 看板 + 启动脚本）",
-        "  - Windows / macOS / Linux",
-        "  - 需要 Python 3.9+",
-        "  - 解压后使用对应平台的启动脚本",
-        "",
-        "- `%s`" % ipk_name,
-        "  - OpenWrt 的 opkg 系安装包",
-        "  - 适用于对应受支持的旧版 OpenWrt 路线",
-        "",
-        "- `%s`" % apk_name,
-        "  - OpenWrt 25.x+ 的 apk-tools 安装包",
+        "  - Windows 便携版（网关源码 + 看板 + 精简 CPython 运行时）",
+        "  - 解压后双击 `start-wb-proxy.bat`，无需另装 Python",
+        "  - 升级用包内的 `update-wb-proxy.bat`（保留 accounts\\ 与 usage\\）",
         "",
         "- `SHA256SUMS`",
         "  - Release 资产的 SHA-256 校验值",
@@ -225,12 +217,8 @@ def compose_body(existing, block):
     return above + "\n\n" + MARKER + "\n" + block
 
 
-def asset_names(version, release):
-    return (
-        "workbuddy2api-agent-v%s.zip" % version,
-        "workbuddy2api_%s-%s_all.ipk" % (version, release),
-        "workbuddy2api-%s-r%s.apk" % (version, release),
-    )
+def asset_names(version):
+    return ("workbuddy2api-agent-v%s.zip" % version,)
 
 
 def _utf8_stdio():
@@ -272,7 +260,6 @@ def main(argv=None):
 
     b = sub.add_parser("body", help="compose the Draft Release body")
     b.add_argument("--version", required=True)
-    b.add_argument("--release", default="1")
     b.add_argument("--existing", default=None, help="file with the current body ('-' for stdin)")
     b.add_argument("--out", required=True)
 
@@ -304,8 +291,8 @@ def main(argv=None):
         elif args.existing and os.path.isfile(args.existing):
             with open(args.existing, encoding="utf-8") as fh:
                 existing = fh.read()
-        zip_name, ipk_name, apk_name = asset_names(args.version, args.release)
-        text = compose_body(existing, download_block(args.version, zip_name, ipk_name, apk_name))
+        (zip_name,) = asset_names(args.version)
+        text = compose_body(existing, download_block(args.version, zip_name))
         with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         print("body    : %s（%d 字节）" % (args.out, len(text.encode("utf-8"))))

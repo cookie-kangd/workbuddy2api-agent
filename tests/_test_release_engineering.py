@@ -41,13 +41,12 @@ class WorkflowTests(unittest.TestCase):
         # test pins, otherwise a passing CI would mean nothing.
         self.assertIn('"version"', text)
 
-    def test_release_checksums_workflow_hashes_every_asset(self):
-        text = read(".github", "workflows", "release-checksums.yml")
-        self.assertIn("types: [published]", text)
-        self.assertIn("gh release download", text)
-        self.assertIn("sha256sum *", text)
-        self.assertIn("gh release upload", text)
-        self.assertIn("checksums.txt", text)
+    def test_only_the_release_workflow_produces_artifacts(self):
+        # This fork ships one artifact (the Windows portable ZIP), so the only
+        # workflow allowed to exist is the release pipeline itself plus the
+        # tests that gate it. A new workflow has to be a deliberate change.
+        names = sorted(os.listdir(os.path.join(ROOT, ".github", "workflows")))
+        self.assertEqual(names, ["release.yml", "tests.yml"])
 
 
 class DockerTests(unittest.TestCase):

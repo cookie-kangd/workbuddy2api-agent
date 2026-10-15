@@ -1127,7 +1127,7 @@ def fetch_openrouter():
     网络失败时抛异常，由调用方决定是记一版失败还是沿用旧价。
     """
     req = urllib.request.Request(
-        OPENROUTER_URL, headers={"User-Agent": "workbuddy2api-hub-pricing/1.0"})
+        OPENROUTER_URL, headers={"User-Agent": "workbuddy2api-agent-pricing/1.0"})
     with urllib.request.urlopen(req, timeout=45) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     return {m.get("id"): (m.get("pricing") or {})

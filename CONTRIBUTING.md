@@ -7,9 +7,9 @@
 
 1. **一个 PR 一件事**：可独立评审、可独立回滚；跨主题请拆成多个 PR。
 2. **分支基于最新 main**：开 PR 前先 rebase / 重放补丁；分支落后且与 main 改过同一批文件时，解冲突**必须两边都留**。
-3. **不许弄丢 main 的近期改动**：合并结果里 base 新增的代码必须还在。仓库配有「回滚检查」CI（revert guard）自动核对——红了先 rebase；确认无碍则由维护者加 `revert-confirmed` 标签放行。
+3. **不许弄丢 main 的近期改动**：合并结果里 base 新增的代码必须还在；解冲突时两边都要留。
 
-> 为什么把这三条放在最前面：issue #270。一次解冲突「取一侧」的合并让 `dashboard.html` 整块消失（#265 表头排序 / #261 签到记录 / #262 更新检查 / #263 优先调度设置 UI），CI 6 红；排查、返工、回退的成本远超事前多花的那几分钟。
+> 为什么把这三条放在最前面：一次解冲突「取一侧」的合并能让 `dashboard.html` 整块消失，排查、返工、回退的成本远超事前多花的那几分钟。
 
 ## 1. 提交前自查（本地必须全过）
 
@@ -19,7 +19,7 @@
 | 测试全绿 | `python tests/run_all.py`（全部套件；CI 里并行跑 `--jobs 4`）。JS 套件需要 PATH 上有 `node`，缺失会跳过并提示——补上 node 再跑；单跑一个套件：`python tests/_test_xxx.py` |
 | 干净检出 | 跑完矩阵后 `python scripts/check_clean_checkout.py`（CI 会钉：套件不许写脏仓库） |
 | 套件计数 | 新增/删除测试套件后，同步 README 的「N 个套件：X 个 Python + Y 个 JS」（有测试钉住） |
-| 依赖口径 | 保持**纯 Python 标准库**、兼容 **Python 3.9**（CI 矩阵：3.9 / 3.12 × Ubuntu / Windows） |
+| 依赖口径 | 保持**纯 Python 标准库**、兼容 **Python 3.9**（CI：Windows + Python 3.12） |
 | 面板文案 | 改看板文案要同步词典：繁体有测试钉住，英文词典一并补（键与 HTML 文本逐字一致，否则英文界面回落中文） |
 | 文本卫生 | 文本文件 LF；可执行脚本保持 755（`wrt/` 打包文件尤其） |
 | 隐私 | 不夹带密钥、token、个人信息、本机绝对路径 |
@@ -39,11 +39,8 @@
 
 ## 3. CI 与合并
 
-- **三条腿全绿才算过**：`ubuntu 3.9`、`ubuntu 3.12`、`windows 3.12`（`tag matches source version` 只在打标签时跑，PR 上 skipped 属正常）。
+- **CI 全绿才算过**：`windows 3.12` 一条腿（`tag matches source version` 只在打标签时跑，PR 上 skipped 属正常）。
 - **冲突怎么解**：在分支上解，**两边都留**（不要「取一侧」）；解完 push 回分支让 CI 重跑。**不要**在本地把冲突解掉后直接 push main——PR 触发的 CI 看不到那条路。
-- **回滚检查（revert guard）**：核对 GitHub 预计算的合并结果——base 自 merge-base 以来新增的代码行不许消失（本 PR 自己删的除外）。红了：
-  1. 推荐：把分支 rebase 到最新 main，检查自动转绿；
-  2. 或维护者核对无碍后加标签 `revert-confirmed` 放行。
 - **合并后**：main 的 CI 必须保持绿。发现坏了优先**确定性回退**（`git read-tree -u --reset <good-sha>` 后提交，或 revert），不要在红的基础上「前向补」。
 - **别用改测试来消红**：测试红了先判断是自己的回归还是测试本身写错；删断言 / 改预期必须有明确理由并写进 PR 说明。
 

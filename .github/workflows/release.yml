@@ -1,10 +1,15 @@
 name: release
 
-# Tag-triggered release packaging (issue #28).
+# Tag-triggered release packaging.
 #
-#   push vX.Y.Z  ->  version gate  ->  full test matrix  ->  ZIP + .ipk + .apk
-#                                                         ->  SHA256SUMS
-#                                                         ->  DRAFT release
+#   push vX.Y  ->  version gate  ->  full test matrix  ->  portable ZIP
+#                                                      ->  SHA256SUMS
+#                                                      ->  DRAFT release
+#
+# This fork ships exactly one artifact: the Windows portable ZIP (a trimmed
+# CPython runtime plus the gateway sources). The OpenWrt packaging recipe stays
+# in wrt/ for anyone who wants to build it by hand, but no workflow builds it,
+# and no workflow publishes a Docker image.
 #
 # The release is only ever created/updated as a draft: the maintainer edits the
 # version notes above the generated "下载说明" block and clicks Publish. Nothing
@@ -25,8 +30,7 @@ name: release
 #
 # A tag carrying the repository's existing `-ci` rehearsal suffix goes through
 # exactly the same path, but the draft is also marked prerelease, so a rehearsal
-# release can never be picked up by the updater planned in #29 (it ignores
-# prereleases).
+# release can never be picked up by update-wb-proxy.ps1 (it ignores prereleases).
 #
 # A manual run cannot write a release at all. `workflow_dispatch` is
 # packaging-only: it builds and hashes exactly what a tag push would, prints the
@@ -62,11 +66,6 @@ env:
   # Windows runner's console is cp1252, which is what killed the first
   # rehearsal at the first Chinese summary line.
   PYTHONUTF8: "1"
-  # OpenWrt 25.x apk-tools package: needs the SDK because `apk mkpkg` ships in
-  # it. The tarball is cached, so only the first run pays for the download.
-  SDK_TARBALL: openwrt-sdk-25.12.2-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-  SDK_REL: "25.12.2"
-
 jobs:
   # ---- 1. tag == source version -------------------------------------------
   # Same assertion tests.yml makes, repeated here because the release must not
@@ -76,7 +75,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
-      release: ${{ steps.v.outputs.release }}
       rehearsal: ${{ steps.v.outputs.rehearsal }}
     steps:
       - uses: actions/checkout@v4
@@ -102,20 +100,9 @@ jobs:
             echo "::error::tag $TAG != source version $OVERVIEW (bump the source first)"
             exit 1
           fi
-          # The OpenWrt recipe carries the same version in its package Makefile
-          # and is the third place that has to agree, so check it here instead
-          # of discovering the mismatch inside the SDK build.
-          PKGVER=$(sed -n 's/^PKG_VERSION:=//p' wrt/openwrt/workbuddy2api/Makefile | head -n1)
-          PKGREL=$(sed -n 's/^PKG_RELEASE:=//p' wrt/openwrt/workbuddy2api/Makefile | head -n1)
-          if [ "$PKGVER" != "$OVERVIEW" ]; then
-            echo "::error::wrt Makefile PKG_VERSION=$PKGVER != source version $OVERVIEW"
-            echo "        bump PKG_VERSION in wrt/openwrt/workbuddy2api/Makefile"
-            exit 1
-          fi
           echo "version=$OVERVIEW" >> "$GITHUB_OUTPUT"
-          echo "release=$PKGREL" >> "$GITHUB_OUTPUT"
           echo "rehearsal=$REHEARSAL" >> "$GITHUB_OUTPUT"
-          echo "version assert OK: $TAGVER (pkg release $PKGREL)"
+          echo "version assert OK: $TAGVER"
 
   # ---- 2. the gate every release-writing path must pass --------------------
   gate:
@@ -338,107 +325,13 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-  # ---- 4. OpenWrt .ipk + .apk ---------------------------------------------
-  openwrt:
-    name: openwrt packages
-    needs: [version, gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.CHECKOUT_REF }}
-      - name: Build .ipk (opkg path, no SDK needed)
-        run: sh wrt/openwrt/build-ipk.sh --app-src "$GITHUB_WORKSPACE"
-      - name: Cache the OpenWrt SDK tarball
-        id: sdk-cache
-        uses: actions/cache@v4
-        with:
-          path: .sdk-cache
-          key: ${{ env.SDK_TARBALL }}
-      - name: Download the SDK (cache miss only)
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
-        run: |
-          set -eu
-          mkdir -p .sdk-cache
-          OUT=".sdk-cache/${SDK_TARBALL}"
-          # The official host is sometimes unusably slow on runners, so try
-          # mirrors and treat "slower than 200KB/s for 60s" as a stall.
-          ok=0
-          for base in \
-            "https://downloads.openwrt.org/releases/${SDK_REL}/targets/x86/64" \
-            "https://mirror2.openwrt.org/releases/${SDK_REL}/targets/x86/64" \
-            "https://mirrors.tuna.tsinghua.edu.cn/openwrt/releases/${SDK_REL}/targets/x86/64" \
-            "https://mirrors.ustc.edu.cn/openwrt/releases/${SDK_REL}/targets/x86/64"
-          do
-            echo "== mirror: ${base}"
-            if curl -fL --retry 2 --retry-all-errors --connect-timeout 20 \
-                 --max-time 1200 --speed-time 60 --speed-limit 204800 \
-                 -o "$OUT" "${base}/${SDK_TARBALL}"; then
-              ok=1; break
-            fi
-            echo "::warning::mirror failed or stalled, trying the next one"
-            rm -f "$OUT"
-          done
-          [ "$ok" = "1" ] || { echo "::error::no mirror served ${SDK_TARBALL}"; exit 1; }
-          ls -l "$OUT"
-      - name: Extract the SDK
-        run: |
-          set -eu
-          command -v zstd >/dev/null 2>&1 || { sudo apt-get update; sudo apt-get install -y zstd; }
-          mkdir -p "$RUNNER_TEMP/sdk"
-          tar --zstd -xf ".sdk-cache/${SDK_TARBALL}" -C "$RUNNER_TEMP/sdk"
-          SDK_DIR=$(find "$RUNNER_TEMP/sdk" -maxdepth 1 -type d -name 'openwrt-sdk-*' | head -n1)
-          [ -f "$SDK_DIR/rules.mk" ] || { echo "::error::unexpected SDK layout: $SDK_DIR"; exit 1; }
-          echo "SDK_DIR=$SDK_DIR" >> "$GITHUB_ENV"
-          echo "SDK ok: $SDK_DIR"
-      - name: Build .apk (apk-tools path, OpenWrt 25.x+)
-        run: sh wrt/openwrt/build-apk.sh "$SDK_DIR" "$GITHUB_WORKSPACE"
-      - name: Verify both packages against the tag
-        # The .ipk packer self-checks its own structure while it builds (GNU tar
-        # members, control fields, reproducible mtime). The .apk is checked here
-        # with the SDK's own apk, so a package cannot be uploaded under a version
-        # that only its file name claims.
-        run: |
-          set -euo pipefail
-          V="${{ needs.version.outputs.version }}"
-          R="${{ needs.version.outputs.release }}"
-          IPK="wrt/ipk/workbuddy2api_${V}-${R}_all.ipk"
-          APK="wrt/apk/workbuddy2api-${V}-r${R}.apk"
-          for f in "$IPK" "$APK"; do
-            [ -s "$f" ] || { echo "::error::资产为空或不存在：$f"; exit 1; }
-          done
-          APK_BIN="$SDK_DIR/staging_dir/host/bin/apk"
-          [ -x "$APK_BIN" ] || { echo "::error::SDK 里没有 apk 工具：$APK_BIN"; exit 1; }
-          "$APK_BIN" adbdump "$APK" | tee apk-dump.txt
-          grep -q "${V}-r${R}" apk-dump.txt \
-            || { echo "::error::.apk 元数据里的版本与 tag 不一致（期望 ${V}-r${R}）"; exit 1; }
-          grep -q 'python3-light' apk-dump.txt \
-            || { echo "::error::.apk 缺少 python3-light 依赖"; exit 1; }
-          ls -l "$IPK" "$APK"
-      - name: Stage both packages flat
-        # download-artifact rebuilds the tree relative to the upload root, so
-        # uploading wrt/ipk/*.ipk and wrt/apk/*.apk together lands them in
-        # dist/ipk/ and dist/apk/ and the draft job's dist/*.apk glob finds
-        # nothing. Everything is uploaded from one flat directory instead.
-        run: |
-          set -eu
-          mkdir -p dist
-          cp wrt/ipk/*.ipk wrt/apk/*.apk dist/
-          ls -l dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-packages
-          path: dist/*
-          if-no-files-found: error
-
   # ---- 5. checksums + preview ---------------------------------------------
   # Runs for a tag push *and* for a manual packaging run. It reads releases
   # (to keep the maintainer's notes) but never writes one: everything it
   # produces goes into an artifact for the writer below, or to the log.
   draft-preview:
     name: draft preview
-    needs: [version, gate, portable, openwrt]
+    needs: [version, gate, portable]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -452,16 +345,8 @@ jobs:
         run: |
           set -euo pipefail
           ls -lR dist
-          assets=()
-          for pat in 'dist/*.zip' 'dist/*.ipk' 'dist/*.apk'; do
-            found=0
-            for f in $pat; do
-              [ -f "$f" ] || continue
-              assets+=("$f")
-              found=1
-            done
-            [ "$found" = "1" ] || { echo "::error::缺少资产：$pat"; exit 1; }
-          done
+          assets=(dist/*.zip)
+          [ -f "${assets[0]}" ] || { echo "::error::缺少资产：dist/*.zip"; exit 1; }
           python release/release_tools.py checksums --out dist/SHA256SUMS "${assets[@]}"
           echo "--- SHA256SUMS ---"
           cat dist/SHA256SUMS
@@ -480,7 +365,6 @@ jobs:
           fi
           python release/release_tools.py body \
             --version "${{ needs.version.outputs.version }}" \
-            --release "${{ needs.version.outputs.release }}" \
             --existing dist/existing-body.md --out dist/release-body.md
           cat dist/release-body.md
       - name: Show what a tag push would do
@@ -490,8 +374,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "手动运行到此为止：不会创建或改动任何 release。推送 $TAG 时会执行："
-          echo "  1) 校验 tag / 源码 / wrt Makefile 三处版本一致"
-          echo "  2) 等目标提交上的完整矩阵（Ubuntu 3.9 + Ubuntu 3.12 + Windows 3.12）全绿"
+          echo "  1) 校验 tag 与源码版本一致"
+          echo "  2) 等目标提交上的测试矩阵全绿"
           echo "  3) 创建或更新 Draft Release（--draft，永不 publish）并上传 dist/ 下的资产"
       - uses: actions/upload-artifact@v4
         with:
@@ -547,7 +431,7 @@ jobs:
           FLAGS=""
           if [ "${{ needs.version.outputs.rehearsal }}" = "true" ]; then
             # A rehearsal draft is marked prerelease as well, so even a mistaken
-            # publish cannot be picked up by #29's updater.
+            # publish cannot be picked up by update-wb-proxy.ps1.
             TITLE="$TAG（演练）"
             FLAGS="--prerelease"
           fi
@@ -560,7 +444,7 @@ jobs:
           else
             gh release create "$TAG" --draft $FLAGS --title "$TITLE" --notes-file dist/release-body.md
           fi
-          gh release upload "$TAG" dist/*.zip dist/*.ipk dist/*.apk dist/SHA256SUMS --clobber
+          gh release upload "$TAG" dist/*.zip dist/SHA256SUMS --clobber
       - name: Prove the release is still a draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -571,8 +455,6 @@ jobs:
           [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ] \
             || { echo "::error::$TAG 不是 draft，立即停止"; exit 1; }
           for want in workbuddy2api-agent-v${{ needs.version.outputs.version }}.zip \
-                      workbuddy2api_${{ needs.version.outputs.version }}-${{ needs.version.outputs.release }}_all.ipk \
-                      workbuddy2api-${{ needs.version.outputs.version }}-r${{ needs.version.outputs.release }}.apk \
                       SHA256SUMS; do
             gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$want" \
               || { echo "::error::draft 里缺少资产 $want"; exit 1; }

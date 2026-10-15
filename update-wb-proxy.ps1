@@ -4,12 +4,12 @@
   更新策略（先清空，再安装）：
     1. 读当前目录 wb_proxy.py 里的版本号；
     2. 查最新版本（国内镜像优先，GitHub 直连兜底）；
-    3. 去发布页读取**真实附件名**（不写死文件名，上游改名也不会失效）；
+    3. 去发布页读取**真实附件名**（不写死文件名，发布方改名也不会失效）；
        最新版还没有便携 zip 时，自动回退到上一个有 zip 的版本；
     4. 已是最新 -> 提示后停住；有新版本 -> 显示新旧版本号，等输入 Y；
     5. 输入 Y 后：下载 -> 校验 SHA256 -> 解压 ->
        **清空目录里除 accounts\、usage\ 和本更新脚本以外的所有内容** ->
-       再把新包文件复制进去。上游增删文件不会留下残留。
+       再把新包文件复制进去。新包增删文件不会留下残留。
 
   无论怎么清空，下面这些永远不动：
     accounts\              账号、API Key、面板密码、设置、智能体配置备份
@@ -103,8 +103,9 @@ function Get-LocalVersion([string]$dir) {
     $py = Join-Path $dir "wb_proxy.py"
     if (-not (Test-Path -LiteralPath $py)) { return $null }
     $text = Get-Content -LiteralPath $py -Raw -Encoding UTF8
-    $m = [regex]::Match($text, 'server_version\s*=\s*"wb-proxy/(\d+\.\d+\.\d+)"')
-    if (-not $m.Success) { $m = [regex]::Match($text, '"version"\s*:\s*"(\d+\.\d+\.\d+)"') }
+    # 版本号允许 0.1 与 0.1.3 两种写法：本仓库从 v0.1 重新起算，只有两段。
+    $m = [regex]::Match($text, 'server_version\s*=\s*"wb-proxy/(\d+(?:\.\d+)+)"')
+    if (-not $m.Success) { $m = [regex]::Match($text, '"version"\s*:\s*"(\d+(?:\.\d+)+)"') }
     if ($m.Success) { return $m.Groups[1].Value }
     return $null
 }
@@ -131,13 +132,13 @@ function Get-TagFromHtml([string]$url, [int]$timeout) {
         $r = Invoke-WebRequest -UseBasicParsing -Uri $url -Headers @{ "User-Agent" = $UA } -TimeoutSec $timeout
         $c = [string]$r.Content
         # 优先认页面"自身"的版本：canonical / og:url / title，比扫页面链接准
-        foreach ($pat in @('<link rel="canonical" href="[^"]*/releases/tag/(v?\d+\.\d+\.\d+)"',
-                           '<meta property="og:url" content="[^"]*/releases/tag/(v?\d+\.\d+\.\d+)"',
-                           '<title>[^<]*?Release\s+(v?\d+\.\d+\.\d+)')) {
+        foreach ($pat in @('<link rel="canonical" href="[^"]*/releases/tag/(v?\d+(?:\.\d+)+)"',
+                           '<meta property="og:url" content="[^"]*/releases/tag/(v?\d+(?:\.\d+)+)"',
+                           '<title>[^<]*?Release\s+(v?\d+(?:\.\d+)+)')) {
             $m = [regex]::Match($c, $pat)
             if ($m.Success) { return $m.Groups[1].Value }
         }
-        $all = [regex]::Matches($c, '/releases/tag/(v?\d+\.\d+\.\d+)') | ForEach-Object { $_.Groups[1].Value }
+        $all = [regex]::Matches($c, '/releases/tag/(v?\d+(?:\.\d+)+)') | ForEach-Object { $_.Groups[1].Value }
         if ($all.Count -gt 0) { return $all[0] }
     } catch { }
     return $null
@@ -146,7 +147,7 @@ function Get-TagFromHtml([string]$url, [int]$timeout) {
 function Get-TagFromRaw([string]$url, [int]$timeout) {
     try {
         $r = Invoke-WebRequest -UseBasicParsing -Uri $url -Headers @{ "User-Agent" = $UA } -TimeoutSec $timeout
-        $m = [regex]::Match([string]$r.Content, 'server_version\s*=\s*"wb-proxy/(\d+\.\d+\.\d+)"')
+        $m = [regex]::Match([string]$r.Content, 'server_version\s*=\s*"wb-proxy/(\d+(?:\.\d+)+)"')
         if ($m.Success) { return "v" + $m.Groups[1].Value }
     } catch { }
     return $null
@@ -209,13 +210,16 @@ function Pick-ZipAsset($names) {
 
 function Get-CandidateTags([string]$latest, [int]$count) {
     $out = @($latest)
-    $m = [regex]::Match($latest, '^v?(\d+)\.(\d+)\.(\d+)$')
+    $m = [regex]::Match($latest, '^v?(\d+(?:\.\d+)+)$')
     if (-not $m.Success) { return $out }
-    $maj = [int]$m.Groups[1].Value; $min = [int]$m.Groups[2].Value; $patch = [int]$m.Groups[3].Value
+    # 末位递减：v0.1 -> v0.0；v0.1.3 -> v0.1.2。段数随 tag 走，不假设三段。
+    $parts = @($m.Groups[1].Value.Split(".") | ForEach-Object { [int]$_ })
     for ($i = 1; $i -lt $count; $i++) {
-        $n = $patch - $i
+        $n = $parts[$parts.Count - 1] - $i
         if ($n -lt 0) { break }
-        $out += "v$maj.$min.$n"
+        $head = @()
+        if ($parts.Count -gt 1) { $head = @($parts[0..($parts.Count - 2)]) }
+        $out += "v" + (@($head + $n) -join ".")
     }
     return $out
 }
@@ -467,7 +471,7 @@ if ($ZipPath) {
         Say-Warn "所有来源都没查到最新版本（网络问题？）。"
         Say-Warn "可以先跑 -Diagnose 看具体哪一步失败。"
         if ($DryRun) { Stop-Now 1 }
-        $manual = Read-Host "也可手动输入要更新的版本号（例如 1.6.20），留空则退出"
+        $manual = Read-Host "也可手动输入要更新的版本号（例如 0.1），留空则退出"
         if ([string]::IsNullOrWhiteSpace($manual)) { Say-Warn "已退出，没有做任何改动。"; Stop-Now 0 }
         $found = @{ tag = $manual.Trim(); source = "手动输入" }
     }
@@ -492,10 +496,16 @@ if ($ZipPath) {
         try {
             $lv = [version]$local
             $rv = [version]($rel.tag -replace '^v', '')
-            if ($rv -le $lv) {
+            if ($rv -eq $lv) {
                 Say-Ok "已经是最新版本，无需更新。"
                 Say-Step "当前版本 $local  /  可更新到 $($rel.tag -replace '^v','')"
                 Stop-Now 0
+            } elseif ($rv -lt $lv) {
+                # 本仓库从 v0.1 重新起算版本号，旧号（例如 0.1.3）会比它大。
+                # 版本号不同就按「要装的就是 release 里这一版」处理，别让一次
+                # 刻意的重新编号把用户卡在旧代码上。
+                Say-Warn "本地版本号更大（$local），但发布版本是 $($rel.tag -replace '^v','')。"
+                Say-Warn "本仓库已重新起算版本号，按该发布版本更新。"
             } else {
                 Say-Warn "发现新版本：$local  ->  $($rel.tag -replace '^v','')"
             }
@@ -623,7 +633,7 @@ try {
     # --- 收尾检查 ---------------------------------------------------------
     $sanity = @("wb_proxy.py", "dashboard.html", "start-wb-proxy.bat")
     $missed = @($sanity | Where-Object { -not (Test-Path -LiteralPath (Join-Path $Target $_)) })
-    foreach ($f in $missed) { Say-Warn "注意：$f 在新包里不存在（上游可能已改名或移除）。" }
+    foreach ($f in $missed) { Say-Warn "注意：$f 在新包里不存在（可能已改名或移除）。" }
 
     $afterVer = Get-LocalVersion $Target
     $keepOk = @($KeepFiles | Where-Object { Test-Path -LiteralPath (Join-Path $Target $_) })

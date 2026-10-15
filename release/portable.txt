@@ -62,7 +62,6 @@ wb_proxy.py
 wb_scheduler.py
 wb_settings.py
 wb_tasks.py
-wb_updates.py
 wb_upstream_pool.py
 wb_webagent.py
 wb_webtools.py

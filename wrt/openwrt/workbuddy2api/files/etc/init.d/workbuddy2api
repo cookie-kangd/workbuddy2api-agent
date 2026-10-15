@@ -1,5 +1,5 @@
 #!/bin/sh /etc/rc.common
-# WorkBuddy2API-Hub · OpenWrt 版 服务脚本
+# WorkBuddy2API-Agent · OpenWrt 版 服务脚本
 #
 # 用 procd 常驻 python3 /usr/lib/workbuddy2api/wb_proxy.py，参数全部来自
 # UCI（/etc/config/workbuddy2api）。改完 uci commit 后 restart 生效。

@@ -1,10 +1,11 @@
-# WorkBuddy2API-Hub Docker Compose
-# 部署：docker compose up -d
-# 更新：docker compose pull && docker compose up -d
+# WorkBuddy2API-Agent Docker Compose
+# 部署（本地自建镜像）：docker compose up -d --build
+# 更新：git pull && docker compose up -d --build
 services:
   wb-proxy:
-    # 追最新稳定版用 :latest；想固定版本可换成具体版本号（如 :v1.6.11）
-    image: ghcr.io/ardeyouxipianyi/workbuddy2api-hub:latest
+    # 本仓库只发布 Windows 便携包，不推送 Docker 镜像；这里始终从本地源码构建。
+    image: workbuddy2api-agent:latest
+    build: .
     container_name: wb-proxy
     restart: unless-stopped
     # Defaults to root (0:0), i.e. the historical behaviour. To run as your own

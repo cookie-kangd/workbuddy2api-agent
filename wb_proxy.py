@@ -17,6 +17,7 @@ import argparse
 import bisect
 import hashlib
 import heapq
+import importlib
 import ipaddress
 from collections import deque
 import re
@@ -67,13 +68,53 @@ import wb_logstore
 import wb_pricing
 import wb_settings
 import wb_upstream_pool
-import wb_webtools
 import wb_identity
 import wb_prompt
 import wb_modelsdev
 import wb_probes
-import wb_updates
 IS_WINDOWS = os.name == "nt"
+
+
+class _LazyModule:
+    """按需 import 一个模块，第一次取属性时才真正加载。
+
+    本地网络工具默认关闭（`设置 → 本地网络工具`），但 `wb_webtools` 会连带拉进
+    urllib / re / html.parser 等一串标准库，实测常驻内存约 +0.7MB。默认关着的
+    部署不该为一个用不上的功能付这份内存，所以改成惰性加载：`wb_webtools.X`
+    的写法完全不变，只是首次访问才 import。`on_load` 用来在真正加载后补做一次
+    初始化（例如把日志回调接上）。
+    """
+
+    __slots__ = ("_name", "_mod", "on_load")
+
+    def __init__(self, name):
+        self._name = name
+        self._mod = None
+        self.on_load = None
+
+    def _load(self):
+        mod = self._mod
+        if mod is None:
+            mod = importlib.import_module(self._name)
+            self._mod = mod
+            hook = self.on_load
+            if hook is not None:
+                try:
+                    hook(mod)
+                except Exception:
+                    pass
+        return mod
+
+    def __getattr__(self, item):
+        return getattr(self._load(), item)
+
+    def __repr__(self):
+        state = "loaded" if self._mod is not None else "lazy"
+        return "<%s module %r (%s)>" % (type(self).__name__, self._name, state)
+
+
+# 见 _LazyModule 的说明：默认关闭的功能不为它付内存。
+wb_webtools = _LazyModule("wb_webtools")
 
 # ---- 一键配置客户端（wb_agents）的可用性判定（issue #246）----
 # 这个功能写的是「网关进程所在机器」的客户端配置，所以只有在浏览器和网关
@@ -5663,8 +5704,6 @@ POOL = None
 SCHEDULER = None
 PRICING = None
 CREDITS_REFRESHER = None
-# Release discovery only - the checker never downloads or installs anything.
-UPDATES = None
 ACCOUNTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'accounts')
 def realm_state_file():
     """Path of the persisted realm switch.
@@ -9780,14 +9819,13 @@ def runtime_settings_view():
         "accounts_separate_tab": wb_settings.accounts_separate_tab(ACCOUNTS_DIR),
         "key_before_hidden": wb_settings.key_before_hidden(ACCOUNTS_DIR),
         "hidden_pages": wb_settings.hidden_pages(ACCOUNTS_DIR),
-        "update_check_enabled": wb_settings.update_check_enabled(ACCOUNTS_DIR),
         "upstream": wb_settings.upstream_config(ACCOUNTS_DIR),
         "usage": wb_settings.usage_config(ACCOUNTS_DIR),
         "prompt": wb_settings.prompt_config(ACCOUNTS_DIR),
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.3",
+        "version": "0.1",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -9994,8 +10032,9 @@ def log(msg, level=None, tag=None):
     sys.stderr.flush()
     add_log_entry(msg, level=level, tag=tag)
 
-# 本地网路工具的多引擎轮换、冷却与失败分类写进看板日志（tag=webtools）
-wb_webtools.set_logger(log)
+# 本地网路工具的多引擎轮换、冷却与失败分类写进看板日志（tag=webtools）。
+# wb_webtools 是惰性模块，此刻还没加载，所以把回调挂成「加载后自动接上」的钩子。
+wb_webtools.on_load = lambda mod: mod.set_logger(log)
 
 def get_logs(limit=200, level="", tag="", search="", since_id=0):
     # 落库开启时以数据库为准：它是完整历史（受保留上限约束），而内存环形缓冲
@@ -15658,7 +15697,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.3"
+    server_version = "wb-proxy/0.1"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -16128,8 +16167,6 @@ class Handler(BaseHTTPRequestHandler):
             return True
         if path.startswith("/settings"):
             return True
-        if path.startswith("/updates"):
-            return True
         if path.startswith("/logs"):
             return True
         # The pricing table is the panel's own view of the estimate, not part
@@ -16208,8 +16245,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._get_pricing()
         if path == "/settings":
             return self._get_settings()
-        if path == "/updates":
-            return self._get_updates()
         if path == "/proxy/slots":
             if not self._panel_ok():
                 return self._error(
@@ -16570,25 +16605,6 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         return self._json(200, runtime_settings_view())
-
-    def _get_updates(self):
-        """What the running build is, and whether a newer stable release exists.
-
-        Read-only and cheap: it reports the last check's outcome, never runs
-        one. The panel's "check now" is the POST below.
-        """
-        if not self._authorized():
-            return
-        if UPDATES:
-            return self._json(200, UPDATES.status())
-        return self._json(200, {
-            "current_version": running_version(),
-            "latest_version": None, "update_available": False,
-            "enabled": wb_settings.update_check_enabled(ACCOUNTS_DIR),
-            "checking": False, "last_attempt": None, "last_success": None,
-            "last_error": "", "release_url": "", "published_at": "",
-            "msg": "更新检查未运行",
-        })
 
     def _get_logs(self, query):
         if not self._authorized():
@@ -17196,18 +17212,6 @@ class Handler(BaseHTTPRequestHandler):
             # spelled wrong are dropped on the way in, so the panel echoes back
             # what was actually stored.
             reply["hidden_pages"] = wb_settings.set_hidden_pages(ACCOUNTS_DIR, raw)
-        if "update_check_enabled" in payload:
-            # Strictly a JSON boolean, like the switches above: "false" as a
-            # string would be truthy and silently start the daily GitHub call.
-            raw = payload.get("update_check_enabled")
-            if not isinstance(raw, bool):
-                return self._error(400, "update_check_enabled must be true or false",
-                                   "invalid_request_error")
-            wb_settings.set_update_check_enabled(ACCOUNTS_DIR, raw)
-            reply["update_check_enabled"] = raw
-            if UPDATES and raw:
-                # Turning it on should not wait out the rest of the poll sleep.
-                UPDATES.wake()
         if "upstream" in payload:
             raw = payload.get("upstream")
             if not isinstance(raw, dict):
@@ -17389,13 +17393,27 @@ class Handler(BaseHTTPRequestHandler):
                 seen.add(mid)
                 meta = meta if isinstance(meta, dict) else {}
                 entry = {"id": mid}
-                ctx = meta.get("maxInputTokens")
+                ctx = None
                 window = meta.get("contextWindow")
-                if isinstance(window, dict) and window.get("defaultLength"):
+                if isinstance(window, dict):
                     ctx = window.get("defaultLength")
-                if not ctx and isinstance(window, dict):
-                    lengths = window.get("supportedLengths") or []
-                    ctx = lengths[-1] if lengths else None
+                    if not ctx:
+                        lengths = window.get("supportedLengths") or []
+                        ctx = lengths[-1] if lengths else None
+                # The desktop catalogue advertises a conservative default window
+                # (e.g. 300k) while the gateway has already resolved the real
+                # limit (up to 1M) via models.dev / the built-in table. Prefer
+                # the resolved value so the Codex catalog written by the
+                # configurator matches what /v1/models advertises as
+                # context_length - otherwise Codex auto-compacts far too early.
+                resolved_ctx, _out_ctx, _ctx_src = wb_modelsdev.lookup(
+                    mid, meta.get("maxInputTokens"), meta.get("maxOutputTokens"),
+                    directory=ACCOUNTS_DIR)
+                if resolved_ctx:
+                    try:
+                        ctx = max(int(ctx or 0), int(resolved_ctx))
+                    except (TypeError, ValueError):
+                        ctx = resolved_ctx
                 if ctx:
                     try:
                         entry["context_window"] = int(ctx)
@@ -17912,19 +17930,6 @@ class Handler(BaseHTTPRequestHandler):
             "msg": summary_msg,
             "accounts_count": len(targets)
         })
-
-    def _route_update_check(self):
-        """Run one release check now, on the operator's explicit request.
-
-        Inline rather than "started, poll /updates": it is a single bounded
-        GitHub request, and the answer is what the button is for. `manual=True`
-        ignores both the daily switch and the 24h window.
-        """
-        if not UPDATES:
-            return self._json(200, {"ok": False, "msg": "更新检查未运行"})
-        status = UPDATES.check(manual=True)
-        status["ok"] = True
-        return self._json(200, status)
 
     def _route_scheduler_trigger(self, payload):
         if SCHEDULER:
@@ -18856,13 +18861,6 @@ class Handler(BaseHTTPRequestHandler):
             if not self._panel_ok():
                 return self._error(401, "panel password required", "invalid_request_error")
             return self._handle_settings_save()
-        if path == "/updates/check":
-            # Panel-only management write, like the pricing ones. No body to
-            # read: the action takes no parameters, so a button that posts
-            # nothing must not be answered with "invalid JSON body".
-            if not self._panel_ok():
-                return self._error(401, "panel password required", "invalid_request_error")
-            return self._route_update_check()
         if path in ("/pricing/refresh", "/pricing/mapping"):
             # Panel-only management writes (the pricing table is the panel's
             # own view of the estimate). Registered here because the generic
@@ -19219,15 +19217,6 @@ class Handler(BaseHTTPRequestHandler):
                      fp=fp, account=account.uid, key=self._key_id(), effort=effort)
         return self._json(200, result)
 
-def running_version():
-    """The version this process reports, e.g. "1.6.19".
-
-    tests/_test_release_engineering.py pins the two version literals and asserts
-    they agree, so the update checker reads the running one from the handler
-    instead of becoming a third copy that could drift away from both.
-    """
-    return Handler.server_version.split("/", 1)[-1]
-
 def main():
     args = _parse_cli_args()
     _apply_cli_overrides(args)
@@ -19402,16 +19391,6 @@ def _bootstrap_runtime(args):
     global CREDITS_REFRESHER
     CREDITS_REFRESHER = wb_accounts.CreditsRefresher(POOL)
     CREDITS_REFRESHER.start()
-    global UPDATES
-    # Release discovery only: the checker asks GitHub what the newest stable
-    # release is and reports it. It never downloads, replaces or restarts
-    # anything, and with the daily switch off (the default) it sends nothing.
-    UPDATES = wb_updates.UpdateChecker(
-        current_version=running_version(),
-        settings_dir=ACCOUNTS_DIR,
-        log=lambda msg: add_log_entry("[更新] %s" % msg, tag="update"),
-    )
-    UPDATES.start()
     return api_key_generated
 
 def _report_first_run(args):

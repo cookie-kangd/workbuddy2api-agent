@@ -1,8 +1,8 @@
 #
-# WorkBuddy2API-Hub · OpenWrt 版
+# WorkBuddy2API-Agent · OpenWrt 版
 #
 # 纯 Python 包（只用标准库，零 pip 依赖），与 CPU 架构无关，
-# 因此 PKGARCH:=all，产物是 workbuddy2api-1.6.20-r1.apk（架构 all）。
+# 因此 PKGARCH:=all，产物是 workbuddy2api-0.1-r1.apk（架构 all）。
 #
 # 在 OpenWrt SDK 里构建：
 #   sh wrt/openwrt/build-apk.sh <SDK 目录> [应用源码目录]
@@ -14,17 +14,18 @@
 # 放进 files/usr/lib/workbuddy2api/，Build/Prepare 只做拷贝。
 #
 # PKG_VERSION 与 wb_proxy.py 的 server_version 必须一致：build-apk.sh /
-# build-ipk.sh 会在打包前比对，release 工作流的 version job 也会比对，
-# 对不上就拒绝出包（宁可不发，也不发一个版本号不对的包）。
+# build-ipk.sh 会在打包前比对，对不上就拒绝出包（宁可不发，也不发一个版本
+# 号不对的包）。这条 recipe 只是留在仓库里给想手动出包的人用，release
+# 工作流不再构建它。
 #
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=workbuddy2api
-PKG_VERSION:=0.1.3
+PKG_VERSION:=0.1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=MIT
-PKG_MAINTAINER:=ardeyouxipianyi
+PKG_MAINTAINER:=cookie-kangd
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 

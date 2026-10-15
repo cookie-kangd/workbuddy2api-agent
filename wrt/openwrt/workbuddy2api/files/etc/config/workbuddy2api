@@ -1,4 +1,4 @@
-# WorkBuddy2API-Hub · OpenWrt 版 配置
+# WorkBuddy2API-Agent · OpenWrt 版 配置
 #
 # 改完执行：uci commit workbuddy2api && /etc/init.d/workbuddy2api restart
 # 本文件含面板密码（可能还有固定 API Key），权限保持 600。

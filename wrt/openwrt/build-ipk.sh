@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# WorkBuddy2API-Hub · OpenWrt 版 —— .ipk 打包脚本（opkg 系，OpenWrt <= 24.10）
+# WorkBuddy2API-Agent · OpenWrt 版 —— .ipk 打包脚本（opkg 系，OpenWrt <= 24.10）
 #
 # 用法：
 #   sh wrt/openwrt/build-ipk.sh [--arch <arch>] [--app-src <目录>]

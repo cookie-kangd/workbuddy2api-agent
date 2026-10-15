@@ -1,11 +1,12 @@
 """Release assets are built from an explicit list, not from the checkout.
 
-Issue #28 turns a `v*` tag into a portable ZIP, two OpenWrt packages and a
-SHA256SUMS file, and hands #29 an explicit list of the files a release owns.
-These assertions pin that contract locally, so a release cannot ship a ZIP that
-silently picked up whatever happened to be in the working tree (or dropped a
-newly added wb_*.py module), and the maintainer's release notes cannot be
-overwritten by the generated download block.
+A `v*` tag turns into exactly one artifact - the Windows portable ZIP - plus a
+SHA256SUMS file, and the archive carries an explicit list of the files a
+release owns (the updater consumes it). These assertions pin that contract
+locally, so a release cannot ship a ZIP that silently picked up whatever
+happened to be in the working tree (or dropped a newly added wb_*.py module),
+and the maintainer's release notes cannot be overwritten by the generated
+download block.
 
 Two of them exist because a review round found the release doing the wrong
 thing:
@@ -38,12 +39,9 @@ import release_tools as tools  # noqa: E402
 
 # The legs the repository has to keep running for a release today. The gate
 # reads them from tests.yml rather than from this tuple - this is the
-# expectation the reader checks that derivation against.
-EXPECTED_LEGS = (
-    "ubuntu-latest / python 3.9",
-    "ubuntu-latest / python 3.12",
-    "windows-latest / python 3.12",
-)
+# expectation the reader checks that derivation against. This fork ships only
+# the Windows portable ZIP, so the matrix is Windows-only too.
+EXPECTED_LEGS = ("windows-latest / python 3.12",)
 
 
 def read(*parts):
@@ -471,9 +469,7 @@ class PortableZipTests(unittest.TestCase):
 class ChecksumTests(unittest.TestCase):
     def test_covers_every_asset_once_in_sha256sum_format(self):
         with tempfile.TemporaryDirectory(prefix="relsum-") as directory:
-            names = ["workbuddy2api-agent-v1.6.17.zip",
-                     "workbuddy2api_1.6.17-1_all.ipk",
-                     "workbuddy2api-1.6.17-r1.apk"]
+            names = ["workbuddy2api-agent-v0.1.zip"]
             assets = []
             for i, name in enumerate(names):
                 p = os.path.join(directory, name)
@@ -505,15 +501,14 @@ class ReleaseBodyTests(unittest.TestCase):
     block = None
 
     def setUp(self):
-        names = tools.asset_names("1.6.17", "1")
-        self.block = tools.download_block("1.6.17", *names)
+        names = tools.asset_names("0.1")
+        self.block = tools.download_block("0.1", *names)
 
     def test_first_compose_has_the_marker_and_the_fixed_block(self):
         body = tools.compose_body("", self.block)
         self.assertIn(tools.MARKER, body)
-        for expected in ("## 下载说明", "workbuddy2api-agent-v1.6.17.zip",
-                         "workbuddy2api_1.6.17-1_all.ipk",
-                         "workbuddy2api-1.6.17-r1.apk", "SHA256SUMS"):
+        for expected in ("## 下载说明", "workbuddy2api-agent-v0.1.zip",
+                         "SHA256SUMS"):
             self.assertIn(expected, body)
 
     def test_maintainer_notes_above_the_marker_survive(self):
@@ -532,7 +527,7 @@ class ReleaseBodyTests(unittest.TestCase):
 class MatrixLegsTests(unittest.TestCase):
     """The release gate names every leg instead of trusting a summary."""
 
-    def test_the_repository_matrix_is_the_expected_three(self):
+    def test_the_repository_matrix_is_the_expected_windows_leg(self):
         self.assertEqual(tuple(matrix_legs.legs()), EXPECTED_LEGS)
 
     def test_dropping_a_leg_narrows_what_the_gate_requires(self):
@@ -542,7 +537,7 @@ class MatrixLegsTests(unittest.TestCase):
         text = read(".github", "workflows", "tests.yml")
         without = text.replace('          - os: windows-latest\n            python: "3.12"\n', "")
         self.assertNotEqual(without, text, "tests.yml 里没有找到预期的 windows 腿")
-        self.assertEqual(tuple(matrix_legs.legs(without)), EXPECTED_LEGS[:2])
+        self.assertEqual(tuple(matrix_legs.legs(without)), ())
 
     def test_an_unparseable_matrix_yields_nothing(self):
         # Empty means "the gate must refuse", never "no legs to check".
@@ -648,14 +643,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertIn("--draft", stripped, stripped)
 
     def test_tag_must_match_the_source_version(self):
-        # The gate reads both source strings, compares the tag against them and
-        # cross-checks the OpenWrt Makefile, so a tag cannot ship a package
-        # whose version disagrees with the code inside it.
+        # The gate reads both source strings and compares the tag against them,
+        # so a tag cannot ship a package whose version disagrees with the code
+        # inside it.
         self.assertIn("github.ref_name", self.text)
         self.assertIn("server_version", self.text)
         self.assertIn('"version"', self.text)
         self.assertIn("TAGVER", self.text)
-        self.assertIn("wrt/openwrt/workbuddy2api/Makefile", self.text)
 
     def test_uses_the_manifest_tooling(self):
         self.assertIn("release/release_tools.py", self.text)
@@ -664,7 +658,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_the_portable_asset_is_built_and_booted_on_windows(self):
         # A Linux job can only assemble a source archive; the green package has
         # to be produced where its own runtime can be executed.
-        portable = self.text.split("  portable:", 1)[1].split("\n  openwrt:", 1)[0]
+        portable = self.text.split("  portable:", 1)[1].split("\n  draft-preview:", 1)[0]
         self.assertIn("runs-on: windows-latest", portable)
         self.assertIn("release/portable_runtime.py", portable)
         self.assertIn("--runtime python", portable)
@@ -816,27 +810,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
         block = self.text.split(marker, 1)[1].split("run:", 1)[0]
         self.assertIn("steps.decide.outputs.writes != 'true'", block)
 
-    def test_the_apk_metadata_is_checked_against_the_tag(self):
-        # "non-empty and metadata/version agree with the tag" is an explicit
-        # acceptance criterion, so the workflow proves it with the SDK's own
-        # apk rather than trusting a file name.
-        self.assertIn("adbdump", self.text)
-        self.assertIn("apk-dump.txt", self.text)
-        self.assertIn("python3-light", self.text)
-
-    def test_packages_are_staged_flat_before_upload(self):
-        # The rehearsal caught this: download-artifact with merge-multiple
-        # rebuilds the tree relative to the upload root, so uploading
-        # wrt/ipk/*.ipk and wrt/apk/*.apk in one artifact delivered them as
-        # dist/ipk/ and dist/apk/ - the checksum step's dist/*.apk glob then
-        # matched nothing and the release job died on a FileNotFoundError.
-        # Every artifact is uploaded from one flat directory instead.
+    def test_the_only_artifact_is_the_windows_zip(self):
+        # This fork publishes exactly one thing. The workflow may not grow a
+        # second artifact kind (Docker image, OpenWrt package, source tarball)
+        # without someone deleting this test on purpose.
         self.assertIn("merge-multiple: true", self.text)
-        self.assertIn("cp wrt/ipk/*.ipk wrt/apk/*.apk dist/", self.text)
+        self.assertNotIn(".ipk", self.text)
+        self.assertNotIn(".apk", self.text)
+        self.assertIn("dist/*.zip dist/SHA256SUMS --clobber", self.text)
         for line in self.text.splitlines():
             stripped = line.strip()
-            if stripped.startswith("wrt/") and (".ipk" in stripped or ".apk" in stripped):
-                self.fail("上传路径不能直接指向 wrt/：%s" % stripped)
+            if stripped.startswith("gh release upload"):
+                self.assertNotIn("dist/*.tar", stripped, stripped)
 
 
     def test_portable_scripts_have_lf_and_executable_mode(self):
