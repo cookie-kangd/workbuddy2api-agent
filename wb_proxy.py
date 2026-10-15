@@ -18495,6 +18495,8 @@ class Handler(BaseHTTPRequestHandler):
         closed = []
 
         class _ChunkedWriter(object):
+            _sse_chunked = True
+
             def write(self, data):
                 if not data:
                     return 0
@@ -18528,9 +18530,17 @@ class Handler(BaseHTTPRequestHandler):
         return self.wfile
 
     def _end_sse_chunks(self):
-        """Terminate a chunked SSE body (idempotent, safe when not chunked)."""
+        """Terminate a chunked SSE body; a no-op unless framing was installed.
+
+        _begin_sse_chunks() tags its wrapper, so a plain wfile - a handler
+        that never streamed, or a test double that captures raw frames - is
+        left alone instead of being closed out from under its owner.
+        """
+        writer = getattr(self, "wfile", None)
+        if writer is None or not getattr(writer, "_sse_chunked", False):
+            return
         try:
-            self.wfile.close()
+            writer.close()
         except Exception:
             pass
 

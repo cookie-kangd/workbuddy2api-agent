@@ -207,6 +207,15 @@ class FakeHandler(object):
         # unattributed - exactly what the real handler records in that case.
         return None
 
+    # The real handler swaps wfile for an HTTP/1.1 chunked-framing wrapper.
+    # These tests read the raw SSE frames back out of self.written, so framing
+    # stays off here: the assertions are about the frames, not the encoding.
+    def _begin_sse_chunks(self):
+        return None
+
+    def _end_sse_chunks(self):
+        return None
+
     def __init__(self):
         self.path = "/v1/responses"
         self.written = []
