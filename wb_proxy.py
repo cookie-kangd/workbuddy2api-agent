@@ -9787,7 +9787,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.2",
+        "version": "0.1.3",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -15658,7 +15658,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.2"
+    server_version = "wb-proxy/0.1.3"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -18481,14 +18481,73 @@ class Handler(BaseHTTPRequestHandler):
                 base_body=chat_req, session_key=session_key, realm=req_realm,
                 effort=effort)
 
+    # --- SSE chunked framing -------------------------------------------
+    # Codex's HTTP client reads a streamed body through HTTP/1.1 chunked
+    # framing. Answering an SSE body with only "Connection: close" leaves it
+    # no chunk boundary to delimit on, so it buffers the entire turn and shows
+    # "optimizing conversation" until the request times out and it reconnects.
+    # CC Switch always answers chunked, which is why the same gateway worked
+    # through it and not directly. stdlib's handler does not encode the body
+    # for us, so the wrapper below frames whatever the handlers write.
+    def _begin_sse_chunks(self):
+        """Wrap self.wfile so later writes are HTTP/1.1 chunk-encoded."""
+        inner = self.wfile
+        closed = []
+
+        class _ChunkedWriter(object):
+            def write(self, data):
+                if not data:
+                    return 0
+                if isinstance(data, str):
+                    data = data.encode("utf-8")
+                try:
+                    inner.write(b"%x\r\n" % len(data) + data + b"\r\n")
+                except Exception:
+                    return 0
+                return len(data)
+
+            def flush(self):
+                try:
+                    inner.flush()
+                except Exception:
+                    pass
+
+            def close(self):
+                if not closed:
+                    closed.append(1)
+                    try:
+                        inner.write(b"0\r\n\r\n")
+                        inner.flush()
+                    except Exception:
+                        pass
+
+            def __getattr__(self, name):
+                return getattr(inner, name)
+
+        self.wfile = _ChunkedWriter()
+        return self.wfile
+
+    def _end_sse_chunks(self):
+        """Terminate a chunked SSE body (idempotent, safe when not chunked)."""
+        try:
+            self.wfile.close()
+        except Exception:
+            pass
+
     def _responses_stream_response(self, upstream, model, custom_names, request_meta, fp, account, t_start, namespace_map=None, base_body=None, session_key=None, realm=None, effort=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "close")
+        # Framing matters as much as the bytes: Codex's HTTP client reads an
+        # SSE body through chunked framing. With only "Connection: close" there
+        # is nothing to delimit a chunk with, so the client buffers the whole
+        # turn, shows "optimizing conversation" until it times out, and then
+        # reconnects. CC Switch always answers chunked; so do we.
+        self.send_header("Transfer-Encoding", "chunked")
         if cors_origin_allowed(self.path):
             self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
+        self._begin_sse_chunks()
         holder = {"usage": None, "custom_names": custom_names,
                   "request_meta": request_meta,
                   "namespace_map": namespace_map,
@@ -18556,6 +18615,7 @@ class Handler(BaseHTTPRequestHandler):
                 upstream.close()
             except Exception:
                 pass
+            self._end_sse_chunks()
         wall = int((time.time() - t_start) * 1000)
         record_usage(model, holder.get("usage"), stream=True, elapsed_ms=wall,
                      ttft_ms=first_ms,
@@ -18727,10 +18787,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "close")
+        # Framing matters as much as the bytes: Codex's HTTP client reads an
+        # SSE body through chunked framing. With only "Connection: close" there
+        # is nothing to delimit a chunk with, so the client buffers the whole
+        # turn, shows "optimizing conversation" until it times out, and then
+        # reconnects. CC Switch always answers chunked; so do we.
+        self.send_header("Transfer-Encoding", "chunked")
         if cors_origin_allowed(self.path):
             self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
+        self._begin_sse_chunks()
         holder = {"usage": None}
         first_ms = None
         try:
@@ -18766,6 +18832,7 @@ class Handler(BaseHTTPRequestHandler):
                 upstream.close()
             except Exception:
                 pass
+            self._end_sse_chunks()
         wall = int((time.time() - t_start) * 1000)
         record_usage(model, holder.get("usage"), stream=True, elapsed_ms=wall,
                      ttft_ms=first_ms,
@@ -18983,10 +19050,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "close")
+            # See _responses_stream_response: chunked framing is what lets the
+            # Codex client delimit SSE chunks instead of waiting for close.
+            self.send_header("Transfer-Encoding", "chunked")
             if cors_origin_allowed(self.path):
                 self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
+            self._begin_sse_chunks()
             emitted = False
             last_usage = None
             first_ms = None
@@ -19095,6 +19165,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                 except Exception:
                     pass
+                self._end_sse_chunks()
                 return
             flush_out()
             if not emitted:
@@ -19102,6 +19173,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(f"data: {err}\n\n".encode("utf-8"))
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
+            self._end_sse_chunks()
             wall = int((time.time() - t_start) * 1000)
             if last_usage is None or (last_usage.get("total_tokens") or 0) == 0:
                 full_s = "".join(streamed_text)
