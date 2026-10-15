@@ -37,6 +37,27 @@ PROVIDER_ID = "wb-proxy"
 PROVIDER_NAME = "WB Proxy"
 CREDENTIAL_REF = "WB_PROXY_API_KEY"
 
+# The Codex desktop app picks its models from a catalog file referenced by
+# config.toml's model_catalog_json; without one it hides third-party models
+# (the picker is catalog-driven, not a live /v1/models query). We generate it
+# in $CODEX_HOME on apply. Schema mirrors what the official app / CC Switch
+# write; unknown knobs are filled with conservative defaults.
+CODEX_CATALOG_FILE = "wb-proxy-model-catalog.json"
+CODEX_BASE_INSTRUCTIONS = (
+    "You are Codex, a coding agent. You and the user share the same workspace "
+    "and collaborate to achieve the user's goals."
+)
+CODEX_EFFORT_LABELS = {
+    "none": "Disable Thinking",
+    "minimal": "Minimal reasoning",
+    "low": "Fast responses with lighter reasoning",
+    "medium": "Balances speed and reasoning depth for everyday tasks",
+    "high": "Greater reasoning depth for complex problems",
+    "xhigh": "Extra high reasoning depth for complex problems",
+    "max": "Maximum reasoning depth for the hardest problems",
+    "ultra": "Ultra reasoning depth",
+}
+
 # A config file bigger than this is almost certainly not the hand-edited
 # settings file we expect, so refuse rather than risk corrupting user data.
 MAX_CONFIG_BYTES = 8 * 1024 * 1024
@@ -584,22 +605,122 @@ def _codex_home(home):
     return os.environ.get("CODEX_HOME") or os.path.join(home, ".codex")
 
 
+def _build_codex_model_catalog(models):
+    """Render the gateway model list as a Codex desktop-app model catalog.
+
+    The desktop app reads this JSON (via config.toml's model_catalog_json) to
+    populate its picker and reasoning controls. Schema mirrors the one the
+    official app / CC Switch write; fields we do not know are filled with
+    conservative defaults so a missing knob never drops a model.
+    """
+    entries = []
+    for index, entry in enumerate(models or []):
+        if not isinstance(entry, dict):
+            continue
+        mid = str(entry.get("id") or "").strip()
+        if not mid:
+            continue
+        context = entry.get("context_window") or entry.get("context_length")
+        try:
+            context = int(context or 0)
+        except (TypeError, ValueError):
+            context = 0
+        if context <= 0:
+            context = 1000000
+        modalities = entry.get("input_modalities")
+        if not isinstance(modalities, list) or not modalities:
+            modalities = ["text"]
+        modalities = [str(m) for m in modalities if str(m).strip()]
+        if not modalities:
+            modalities = ["text"]
+        efforts = entry.get("reasoning_efforts")
+        if not isinstance(efforts, list):
+            efforts = []
+        levels = []
+        for effort in efforts:
+            effort = str(effort or "").strip()
+            if not effort:
+                continue
+            levels.append({
+                "description": CODEX_EFFORT_LABELS.get(
+                    effort, effort.replace("_", " ").title()),
+                "effort": effort,
+            })
+        reasoning = bool(entry.get("reasoning")
+                         or entry.get("supports_reasoning"))
+        if not levels and reasoning:
+            levels = [
+                {"description": CODEX_EFFORT_LABELS["none"], "effort": "none"},
+                {"description": CODEX_EFFORT_LABELS["high"], "effort": "high"},
+            ]
+        default_effort = str(
+            entry.get("reasoning_default_effort")
+            or entry.get("reasoning_effort")
+            or "high").strip()
+        advertised = {level["effort"] for level in levels}
+        if default_effort not in advertised and levels:
+            default_effort = levels[-1]["effort"]
+        display = str(entry.get("name") or entry.get("description") or mid)
+        entries.append({
+            "additional_speed_tiers": [],
+            "availability_nux": None,
+            "base_instructions": CODEX_BASE_INSTRUCTIONS,
+            "context_window": context,
+            "default_reasoning_level": default_effort if levels else "none",
+            "default_reasoning_summary": "none",
+            "description": display,
+            "display_name": display,
+            "effective_context_window_percent": 95,
+            "experimental_supported_tools": [],
+            "input_modalities": modalities,
+            "max_context_window": context,
+            "priority": 1000 + index,
+            "service_tiers": [],
+            "shell_type": "shell_command",
+            "slug": mid,
+            "support_verbosity": False,
+            "supported_in_api": True,
+            "supported_reasoning_levels": levels,
+            "supports_image_detail_original": False,
+            "supports_parallel_tool_calls": False,
+            "supports_reasoning_summaries": bool(levels),
+            "supports_search_tool": False,
+            "truncation_policy": {"limit": 10000, "mode": "bytes"},
+            "upgrade": None,
+            "visibility": "list",
+        })
+    return {"models": entries}
+
+
 def _apply_codex(paths, ctx):
     config_path = paths["config"]
     text = _read_text(config_path)
     text = toml_upsert_top_key(text, "model_provider", PROVIDER_ID)
     if ctx.get("model"):
         text = toml_upsert_top_key(text, "model", ctx["model"])
+    # The desktop app needs a catalog to surface the gateway's models, and we
+    # keep response storage off so third-party traffic is not written upstream.
+    text = toml_upsert_top_key(text, "model_catalog_json", CODEX_CATALOG_FILE)
+    text = toml_upsert_top_key(text, "disable_response_storage", True)
+    # env_key + auth.json covers the CLI; the desktop app instead reads the
+    # bearer token inline from experimental_bearer_token and ignores env_key.
+    # requires_openai_auth off stops Codex from falling back to its OpenAI
+    # login for this third-party route.
     text = toml_upsert_table(text, "model_providers." + PROVIDER_ID, {
         "name": PROVIDER_NAME,
         "base_url": ctx["base_url_v1"],
         "wire_api": "responses",
         "env_key": "OPENAI_API_KEY",
+        "experimental_bearer_token": ctx["api_key"],
+        "requires_openai_auth": False,
     })
     auth_path = paths["auth"]
     auth = _load_json(auth_path, "codex auth")
     auth = deep_merge(auth, {"OPENAI_API_KEY": ctx["api_key"]})
-    return {config_path: text, auth_path: _dump_json(auth)}
+    catalog_path = paths["catalog"]
+    catalog = _dump_json(_build_codex_model_catalog(ctx.get("models")))
+    return {config_path: text, auth_path: _dump_json(auth),
+            catalog_path: catalog}
 
 
 def _apply_opencode(paths, ctx):
@@ -775,12 +896,14 @@ CLIENTS = {
     },
     "codex": {
         "id": "codex",
-        "label": "Codex CLI",
-        "desc": "OpenAI Codex CLI; adds a wb-proxy model provider.",
+        "label": "Codex CLI / App",
+        "desc": "OpenAI Codex (CLI and desktop app); adds a wb-proxy model "
+                "provider plus the model catalog the app picker needs.",
         "protocol": "openai",
         "files": lambda home: {
             "config": os.path.join(_codex_home(home), "config.toml"),
             "auth": os.path.join(_codex_home(home), "auth.json"),
+            "catalog": os.path.join(_codex_home(home), CODEX_CATALOG_FILE),
         },
         "probe": lambda home: (
             os.path.isdir(_codex_home(home))
@@ -1167,6 +1290,24 @@ def fetch_models_from_gateway(base_url, api_key, timeout=10):
         name = item.get("name")
         if name:
             entry["name"] = str(name)
+        # Capability metadata the Codex desktop-app catalog needs.
+        inputs = item.get("input_modalities")
+        if isinstance(inputs, list):
+            entry["input_modalities"] = [
+                str(x) for x in inputs if str(x).strip()]
+        if item.get("supports_reasoning") is not None:
+            entry["reasoning"] = bool(item.get("supports_reasoning"))
+        efforts = item.get("reasoning_efforts")
+        if isinstance(efforts, list):
+            entry["reasoning_efforts"] = [
+                str(x) for x in efforts if str(x).strip()]
+        default_effort = (item.get("reasoning_default_effort")
+                          or item.get("reasoning_fixed_effort"))
+        if default_effort:
+            entry["reasoning_default_effort"] = str(default_effort)
+        desc = item.get("description")
+        if desc:
+            entry["description"] = str(desc)
         models.append(entry)
     # Same cap as the panel's apply: a runaway catalog must not turn into a
     # megabyte config file.

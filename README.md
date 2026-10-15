@@ -219,13 +219,15 @@ Codex App 这类客户端会在 Responses 请求里声明 `web_search` / `web_fe
 | 客户端 | 写入位置 | 协议 |
 | --- | --- | --- |
 | Claude Code | `~/.claude/settings.json` | 原生 Anthropic Messages（自动剥 `/v1` 后缀） |
-| Codex CLI | `~/.codex/config.toml`、`~/.codex/auth.json` | Responses API |
+| Codex CLI / App | `~/.codex/config.toml`、`~/.codex/auth.json`、`~/.codex/wb-proxy-model-catalog.json` | Responses API（含桌面端模型目录，`model_catalog_json` 指向该文件） |
 | OpenCode | `~/.config/opencode/opencode.json` | OpenAI 兼容（`@ai-sdk/openai-compatible`） |
 | DSH (DeepSeek Harness) | `~/.dsh/settings.yaml`、`~/.dsh/.credentials.yaml` | OpenAI 兼容 |
 | Crush (Charm Crush) | `~/.config/crush/crush.json` | OpenAI 兼容 |
 | ZCode | `~/.zcode/v2/provider_config.json` | OpenAI 兼容（`openai-chat-completions`；**配置前先退出 ZCode**，运行中它会重写该文件） |
 
 用法：打开看板 →「智能体配置」→ 选 API Key（支持全局默认或绑定特定出口的多 Key）、默认模型与网关地址 → 在检测到的客户端卡片上点「一键配置」；随时可点「一键还原」。
+
+> **Codex 桌面程序**：桌面端（App）的模型选择器只读本地模型目录（`model_catalog_json`），不实时查询 `/v1/models`。因此 `codex` 条目除了写 `config.toml` / `auth.json`，还会按网关当前模型表生成 `~/.codex/wb-proxy-model-catalog.json`（推理档位、多模态、上下文长度一并写入），并设置 `disable_response_storage = true`。这样 Codex CLI 与 Codex App 都能一步接入，无需再用 CC Switch。
 
 - **非侵入**：纯标准库实现的文本级 YAML / TOML / JSON / .env 编辑器，只增量插入或更新 `wb-proxy` 那段，绝不重排或抹掉用户的注释、缩进与其他 provider 配置；
 - **可回滚**：写入前自动备份到 `accounts/agent-backups/<客户端ID>/`（每文件保留最新 10 份），首次接入的原件永久保留；多文件客户端（DSH、Codex）两阶段写入，任一文件失败立即回退；

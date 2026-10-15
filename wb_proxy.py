@@ -17410,6 +17410,22 @@ class Handler(BaseHTTPRequestHandler):
                 name = meta.get("name")
                 if name:
                     entry["name"] = name
+                # Reasoning + modality, so the Codex desktop-app catalog the
+                # configurator writes is accurate when applied from the panel.
+                inputs = ["text"] + (["image"] if bool(meta.get("supportsImages"))
+                                     and not meta.get("disabledMultimodal") else [])
+                entry["input_modalities"] = inputs
+                reasoning = meta.get("reasoning") or {}
+                efforts = reasoning.get("supportedEfforts")
+                if isinstance(efforts, list) and efforts:
+                    entry["reasoning_efforts"] = [str(x) for x in efforts]
+                    entry["reasoning"] = True
+                if reasoning.get("defaultEffort"):
+                    entry["reasoning_default_effort"] = str(
+                        reasoning["defaultEffort"])
+                desc = meta.get("descriptionEn") or meta.get("descriptionZh")
+                if desc:
+                    entry["description"] = str(desc)
                 models.append(entry)
         except Exception:
             pass
@@ -17514,6 +17530,23 @@ class Handler(BaseHTTPRequestHandler):
             # model definitions (OpenCode, DSH, Crush, ZCode) receive the full
             # model list even when the front-end omitted the field.
             models = self._agents_models()
+        else:
+            # The panel sends only model id strings. Re-attach capability
+            # metadata (input_modalities / reasoning_efforts / ...) from the
+            # gateway catalog so the Codex desktop-app model catalog is rich
+            # instead of text-only with no reasoning controls.
+            enriched = {}
+            for item in self._agents_models():
+                if isinstance(item, dict) and item.get("id"):
+                    enriched[str(item["id"])] = item
+            reattached = []
+            for item in models:
+                mid = item.get("id") if isinstance(item, dict) else item
+                mid = str(mid or "").strip()
+                if not mid:
+                    continue
+                reattached.append(enriched.get(mid) or {"id": mid})
+            models = reattached
         if not isinstance(models, list):
             return self._error(400, "models must be a list",
                                "invalid_request_error")

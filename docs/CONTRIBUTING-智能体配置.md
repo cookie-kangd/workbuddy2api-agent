@@ -309,6 +309,21 @@ python wb_agents.py restore  --client CLIENT [--home DIR] [--state-dir DIR] [--j
 
 ---
 
+## 8.5 Codex 桌面端模型目录（model catalog）
+
+Codex CLI 只要 `config.toml` 里的 `model_provider` / `model` / `[model_providers.*]`
+就能工作；但 **Codex 桌面程序（App）的模型选择器只读本地目录文件**，不实时查询
+`/v1/models`。所以 `codex` 条目的 `apply` 额外做了三件事：
+
+1. 把 `model_catalog_json = "wb-proxy-model-catalog.json"` 写入 `config.toml`（顶层键，相对 `$CODEX_HOME` 解析）；
+2. 用 `ctx["models"]`（来自网关 `/v1/models`，含 `input_modalities` / `reasoning_efforts` / `reasoning_default_effort`）生成 `~/.codex/wb-proxy-model-catalog.json`，schema 对齐官方 App / CC Switch 的目录文件（`slug`、`display_name`、`context_window`、`supported_reasoning_levels`、`input_modalities`、`truncation_policy` 等）；
+3. 写 `disable_response_storage = true`，避免第三方流量被上游留存。
+
+`_build_codex_model_catalog(models)` 是纯函数，未知字段一律用保守默认值填充，
+因此单个模型缺某个 knob 不会导致该模型被 App 丢弃。新增需要「模型目录」类客户端时，
+照 `_apply_codex` 的模式：在 `files` 里多加一个 `catalog` 路径，`apply` 返回该
+文件的 JSON 文本即可，备份 / 还原 / dry-run 全部自动生效。
+
 ## 9. 测试规范与验证指令
 
 维护或扩展本模块时，必须确保以下测试命令通过：
