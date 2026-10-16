@@ -88,17 +88,26 @@ class WebChannelTests(unittest.TestCase):
 
         return calls, fake
 
-    def stub_turn(self, result=None):
-        """Replace the ACP drive with a recorder; returns the recorded calls."""
+    def stub_turn(self, result=None, sequence=None):
+        """Replace the ACP drive with a recorder; returns the recorded calls.
+
+        sequence 按轮次给出结果（最后一轮之后重复最后一个），用来测重试：例如
+        [{"ok": False, "status": "working"}, {"ok": True}] 就是「先失败一次、第二次
+        跑完」。result 则是覆盖每一轮的一次性结果。
+        """
         seen = []
         real = wb_accounts.wb_webagent.run_turn
+        pending = list(sequence or [])
 
         def fake(link, token, session_id, cwd, prompt, user_agent, **kwargs):
             seen.append({"link": link, "token": token, "session_id": session_id,
                          "cwd": cwd, "prompt": prompt,
+                         "wait_seconds": kwargs.get("wait_seconds"),
                          "status": kwargs.get("poll_status")})
             out = {"ok": True, "status": "completed", "events": 5, "chunks": 2,
                    "elapsed_ms": 1234, "error": ""}
+            if sequence:
+                out.update(pending.pop(0) if len(pending) > 1 else pending[0])
             out.update(result or {})
             return out
 
@@ -265,6 +274,223 @@ class WebChannelTests(unittest.TestCase):
         self.assertTrue(acc.last_daily_chat)
         self.assertFalse(acc.can_daily_chat())
 
+    # ---- 失败重试 ----------------------------------------------------------
+    # 一轮「会话还没跑完」往往只是慢，不是坏了。重试默认开，一共最多尝试 N 次
+    # （含第一轮），每轮的等待是上一轮的两倍：默认 3 次 = 120 / 240 / 480。
+
+    def account_in(self, name, retry=None, timeout=None, attempts=None):
+        """一个带自己 settings.json 的账号，方便按设置页的口径测重试策略。"""
+        directory = os.path.join(_TMP.name, name)
+        os.makedirs(directory, exist_ok=True)
+        if retry is not None:
+            wb_settings.set_daily_chat_web_retry(directory, retry)
+        if timeout is not None:
+            wb_settings.set_daily_chat_web_timeout(directory, timeout)
+        if attempts is not None:
+            wb_settings.set_daily_chat_web_attempts(directory, attempts)
+        acc = wb_accounts.Account({"uid": self.UID, "realm": "intl",
+                                   "accessToken": "dummy-token", "lastDailyChat": None})
+        acc.path = os.path.join(directory, "acc-intl.json")
+        return acc
+
+    def test_a_slow_turn_is_retried_and_the_wait_doubles(self):
+        acc = self.account_in("web-retry-on", retry=True)
+        _calls, fake = self.stub()
+        turns = self.stub_turn(sequence=[{"ok": False, "status": "working",
+                                          "chunks": 0,
+                                          "error": "会话在 120s 内没有跑完（状态=working）"},
+                                         {"ok": True, "status": "completed"}])
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res.get("attempts"), 2)
+        self.assertEqual([t["wait_seconds"] for t in turns], [120, 240])
+
+    def test_retries_stop_at_the_cap(self):
+        """一直跑不完就试到上限为止：默认一共 3 次，等待 120 / 240 / 480。"""
+        acc = self.account_in("web-retry-cap", retry=True)
+        _calls, fake = self.stub()
+        turns = self.stub_turn({"ok": False, "status": "working", "chunks": 0,
+                                "error": "会话在 120s 内没有跑完（状态=working）"})
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertFalse(res.get("ok"), res)
+        self.assertEqual(res.get("attempts"), wb_accounts.WEB_TURN_ATTEMPTS)
+        self.assertEqual([t["wait_seconds"] for t in turns], [120, 240, 480])
+
+    def test_a_business_rejection_is_not_retried(self):
+        """建会话被业务拒绝（非 0 code）时重试没有意义，只跑一轮。"""
+        acc = self.account_in("web-retry-reject", retry=True)
+        calls, fake = self.stub({"code": 12302, "msg": "activity is offline"})
+        turns = self.stub_turn()
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertFalse(res.get("ok"), res)
+        self.assertEqual(res.get("attempts"), 1)
+        self.assertEqual(turns, [])
+        self.assertEqual(len([r for r in calls
+                              if r.full_url.endswith("/conversations/")]), 1)
+
+    def test_a_transient_create_failure_is_retried(self):
+        """建会话时 503 是瞬时失败，值得再试一次（与业务拒绝区分开）。"""
+        acc = self.account_in("web-retry-503", retry=True)
+        calls, fake = self.stub()
+        turns = self.stub_turn()
+        state = {"left": 1}
+        real_fake = fake
+
+        def flaky(req, **kwargs):
+            if req.full_url.endswith("/conversations/") and state["left"] > 0:
+                state["left"] -= 1
+                raise urllib.error.HTTPError(req.full_url, 503, "Unavailable", {}, io.BytesIO(b""))
+            return real_fake(req, **kwargs)
+
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = flaky
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res.get("attempts"), 2)
+        self.assertEqual([t["wait_seconds"] for t in turns], [240])
+
+    def test_a_fresh_install_retries_by_default(self):
+        """没碰过设置的安装就是默认口径：一共 3 次，等待 120 / 240 / 480。"""
+        acc = self.account_in("web-retry-default")
+        _calls, fake = self.stub()
+        turns = self.stub_turn({"ok": False, "status": "working", "chunks": 0,
+                                "error": "会话在 120s 内没有跑完（状态=working）"})
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertFalse(res.get("ok"), res)
+        self.assertEqual(res.get("attempts"), 3)
+        self.assertEqual([t["wait_seconds"] for t in turns], [120, 240, 480])
+
+    def test_the_attempt_count_is_configurable(self):
+        """设置页改过的次数就是总次数（含第一轮）：5 次 = 120/240/480/960/1920。"""
+        acc = self.account_in("web-attempts", retry=True, attempts=5)
+        _calls, fake = self.stub()
+        turns = self.stub_turn({"ok": False, "status": "working", "chunks": 0,
+                                "error": "会话在 120s 内没有跑完（状态=working）"})
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertEqual(res.get("attempts"), 5)
+        self.assertEqual([t["wait_seconds"] for t in turns], [120, 240, 480, 960, 1920])
+
+    def test_one_attempt_means_one_try(self):
+        """次数填 1 就是只跑一轮，与关掉开关等效。"""
+        acc = self.account_in("web-attempts-one", retry=True, attempts=1)
+        _calls, fake = self.stub()
+        turns = self.stub_turn({"ok": False, "status": "working", "chunks": 0,
+                                "error": "会话在 120s 内没有跑完（状态=working）"})
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertEqual(res.get("attempts"), 1)
+        self.assertEqual([t["wait_seconds"] for t in turns], [120])
+
+    def test_the_retry_toggle_off_keeps_one_attempt(self):
+        """显式关掉重试时，网页通道回到「只跑一轮」。"""
+        acc = self.account_in("web-retry-off", retry=False)
+        _calls, fake = self.stub()
+        turns = self.stub_turn({"ok": False, "status": "working", "chunks": 0,
+                                "error": "会话在 120s 内没有跑完（状态=working）"})
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertFalse(res.get("ok"), res)
+        self.assertEqual(res.get("attempts"), 1)
+        self.assertEqual([t["wait_seconds"] for t in turns], [120])
+
+    def test_the_configured_wait_is_the_first_attempt(self):
+        """设置页改过的等待时间就是首轮的等待，重试从它翻倍。"""
+        acc = self.account_in("web-timeout", retry=True, timeout=45)
+        _calls, fake = self.stub()
+        turns = self.stub_turn(sequence=[{"ok": False, "status": "working", "chunks": 0},
+                                         {"ok": True, "status": "completed"}])
+        old = wb_accounts.urlopen
+        wb_accounts.urlopen = fake
+        try:
+            res = acc.daily_chat_web()
+        finally:
+            wb_accounts.urlopen = old
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual([t["wait_seconds"] for t in turns], [45, 90])
+
+    def test_the_env_timeout_survives_the_new_setting(self):
+        """没在设置页改过时，WB_WEB_TURN_TIMEOUT 仍然说了算，不被 120 顶掉。"""
+        acc = self.account_in("web-timeout-env")
+        real = wb_accounts.WEB_TURN_TIMEOUT
+        wb_accounts.WEB_TURN_TIMEOUT = 77
+        try:
+            self.assertEqual(acc.daily_chat_web_policy()[0], 77)
+        finally:
+            wb_accounts.WEB_TURN_TIMEOUT = real
+        # 设置页改过就以设置页的为准。
+        wb_settings.set_daily_chat_web_timeout(os.path.dirname(acc.path), 45)
+        self.assertEqual(acc.daily_chat_web_policy()[0], 45)
+
+    def test_the_retry_settings_default_and_round_trip(self):
+        directory = os.path.join(_TMP.name, "web-retry-settings")
+        # 默认：重试开着、一共 3 次、首轮等待 120 秒。
+        self.assertTrue(wb_settings.daily_chat_web_retry(directory))
+        self.assertEqual(wb_settings.daily_chat_web_attempts(directory),
+                         wb_settings.DAILY_CHAT_WEB_ATTEMPTS_DEFAULT)
+        self.assertEqual(wb_settings.daily_chat_web_timeout(directory),
+                         wb_settings.DAILY_CHAT_WEB_TIMEOUT_DEFAULT)
+        self.assertFalse(wb_settings.set_daily_chat_web_retry(directory, False))
+        self.assertFalse(wb_settings.daily_chat_web_retry(directory))
+        self.assertEqual(wb_settings.set_daily_chat_web_attempts(directory, 5), 5)
+        self.assertEqual(wb_settings.daily_chat_web_attempts(directory), 5)
+        self.assertEqual(wb_settings.set_daily_chat_web_timeout(directory, 300), 300)
+        self.assertEqual(wb_settings.daily_chat_web_timeout(directory), 300)
+        # 越界/非法值一律回落到默认，不让手改的 settings.json 把巡检拖住。
+        for bad in (0, -5, wb_settings.DAILY_CHAT_WEB_TIMEOUT_MAX + 1, "120", True):
+            with open(wb_settings.settings_path(directory), "w", encoding="utf-8") as fh:
+                json.dump({"daily_chat_web_timeout": bad}, fh)
+            self.assertEqual(wb_settings.daily_chat_web_timeout(directory),
+                             wb_settings.DAILY_CHAT_WEB_TIMEOUT_DEFAULT, bad)
+        for bad in (0, -1, wb_settings.DAILY_CHAT_WEB_ATTEMPTS_MAX + 1, "3", True):
+            with open(wb_settings.settings_path(directory), "w", encoding="utf-8") as fh:
+                json.dump({"daily_chat_web_attempts": bad}, fh)
+            self.assertEqual(wb_settings.daily_chat_web_attempts(directory),
+                             wb_settings.DAILY_CHAT_WEB_ATTEMPTS_DEFAULT, bad)
+        with self.assertRaises(ValueError):
+            wb_settings.set_daily_chat_web_timeout(directory, 0)
+        with self.assertRaises(ValueError):
+            wb_settings.set_daily_chat_web_timeout(directory, "120")
+        with self.assertRaises(ValueError):
+            wb_settings.set_daily_chat_web_attempts(directory, 0)
+        with self.assertRaises(ValueError):
+            wb_settings.set_daily_chat_web_attempts(directory, "3")
+
     def test_the_web_toggle_defaults_on_and_round_trips(self):
         directory = os.path.join(_TMP.name, "web-toggle")
         self.assertTrue(wb_settings.daily_chat_web(directory))
@@ -298,6 +524,15 @@ class CnCheckinTests(unittest.TestCase):
             self.assertTrue(acc.last_checkin)
         finally:
             wb_accounts.http_json = real_http_json
+
+
+
+    def test_daily_chat_model_falls_back_when_preferred_is_cooling(self):
+        acc = wb_accounts.Account({"uid": "u-fallback", "access_token": "t-fb", "realm": "intl"})
+        acc.model_cooldowns["deepseek-v4.1-flash"] = time.time() + 600
+        picked = acc.daily_chat_model()
+        self.assertNotEqual(picked, "deepseek-v4.1-flash")
+        self.assertIn(picked, ["hy3", "hy4-preview-f", "hy4-preview", "glm-5.3-flash"])
 
 
 if __name__ == "__main__":

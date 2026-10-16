@@ -233,6 +233,52 @@ class ModelCooldownTests(unittest.TestCase):
         self.assertLess(abs(row["modelCooldowns"][0]["expiresAt"] - reset), 2)
         self.assertTrue(account.ready(model="another-model"))
 
+    def test_a_model_429_records_the_moment_it_started(self):
+        """面板要如实说「限流时刻 + 恢复时间」。
+
+        model_cooldowns 只留恢复时刻，起始时刻以前被丢掉，禁用总览因此只能用
+        「—」占位——把 60s 的短时 parking 和几小时的 6004 撞线画成同一副样子。
+        这里钉住：非 6004 的模型级 429 也要记下起始时刻，并且冷却清掉后不留残影。
+        """
+        before = time.time()
+        account = self._drive_unparsed(S1_BARE, "started-at")
+        entry = account.public()["modelCooldowns"][0]
+        self.assertIn("startedAt", entry, "模型级 429 要记下起始时刻")
+        self.assertGreaterEqual(entry["startedAt"], before - 1)
+        self.assertLessEqual(entry["startedAt"], time.time() + 1)
+        self.assertLessEqual(entry["startedAt"], entry["expiresAt"])
+        self.assertNotIn("cappedAt", entry, "临时限流没有撞线语义")
+        # 清掉冷却后起始时刻不能留在快照里（否则下一行的「开始时间」会串）。
+        account.note_success(model="glm-5.3")
+        self.assertEqual(account.public()["modelCooldowns"], [])
+        self.assertNotIn("glm-5.3", account.model_cooldowns_at)
+
+    def test_a_6004_reports_the_cap_moment_as_the_start(self):
+        """6004 的起始时刻就是上游撞线时刻，与 cappedAt 一致（同一瞬间）。"""
+        account = accounts.Account({"uid": "synthetic-intl", "realm": "intl",
+                                    "accessToken": "token"})
+        directory = tempfile.mkdtemp(prefix="cap-start-")
+        old_dir = proxy.ACCOUNTS_DIR
+        proxy.ACCOUNTS_DIR = directory
+        try:
+            detail = self.cap_body(time.time() + 3600)
+            self.drive_one_429(account, detail=detail, stub_parser=False,
+                               model="deepseek-v4.1-flash", target_realm="intl")
+        finally:
+            proxy.ACCOUNTS_DIR = old_dir
+        entry = account.public()["modelCooldowns"][0]
+        self.assertIn("cappedAt", entry)
+        self.assertIn("startedAt", entry)
+        self.assertLessEqual(abs(entry["startedAt"] - entry["cappedAt"]), 1)
+        # keep_caps 只保留 cap 冷却，起始时刻跟着一起留下。
+        account.clear_error(model="deepseek-v4.1-flash", keep_caps=True)
+        kept = account.public()["modelCooldowns"][0]
+        self.assertEqual(kept["startedAt"], entry["startedAt"])
+        # 不带 keep_caps 则两者一起清掉。
+        account.clear_error(model="deepseek-v4.1-flash")
+        self.assertEqual(account.public()["modelCooldowns"], [])
+        self.assertNotIn("deepseek-v4.1-flash", account.model_cooldowns_at)
+
     def test_the_real_bare_429_parks_only_the_model(self):
         """S1 - 87% of the recorded 429s, no reset information at all.
 
@@ -587,6 +633,10 @@ class ModelCooldownTests(unittest.TestCase):
             revived_row = next(item for item in revived.public()["modelCooldowns"]
                                if item["model"] == "deepseek-v4.1-flash")
             self.assertIn("cappedAt", revived_row, "重启加载后面板仍能显示撞线时间")
+            # 起始时刻是运行时态，重启即清零；撞线时刻另有持久化的 cap 兜底，
+            # 面板的「开始时间」列因此仍有值（这是刻意的分工，不是缺失）。
+            self.assertNotIn("startedAt", revived_row,
+                             "startedAt 是运行时态，不该跨重启")
 
             # 恢复时间过了以后自动解除
             with mock.patch.object(accounts.time, "time", return_value=reset + 1):

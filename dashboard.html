@@ -1453,6 +1453,19 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '已启用：429 时自动切换出站身份': 'On: switch the outbound identity automatically on 429',
     '已启用：余额低于': 'On: when the balance drops below',
     '已启用：国际版打卡走网页通道': 'On: the Global check-in uses the web channel',
+    '失败重试': 'Retry on failure',
+    '最多尝试次数': 'Max attempts',
+    '首轮等待': 'First wait',
+    '最多尝试 ': 'Up to ',
+    ' 次 · ': ' attempts · ',
+    '只跑一轮': 'Single attempt',
+    '每轮等待': 'Wait per attempt',
+    '网页通道一轮没跑完（会话还在 working）就再来一轮：最多尝试几次（含第一轮，可改），每轮等待时间是上一轮的两倍——默认 3 次、首轮 120 秒，也就是 120 / 240 / 480 秒。默认开启；会话只是慢的时候多等一轮通常就过了。': 'When a web-channel attempt does not finish (the session is still working), try again: up to N tries in total (the first one included, configurable), with each wait twice the previous one - 3 tries and a 120-second first wait by default, i.e. 120 / 240 / 480. On by default; a session that is merely slow usually finishes on the next attempt.',
+    '注意：等待时间逐轮翻倍，「次数」与「首轮等待」调大都是平方级的代价——一个始终跑不完的账号最坏能占住巡检 base×(2^次数−1) 秒（默认 120×7 = 840 秒 ≈ 14 分钟）。建议不超过客户端愿意空等的时长。': 'Note: the wait doubles each round, so raising either the try count or the first wait costs you on a quadratic scale - an account that never finishes can hold the sweep for base×(2^tries−1) seconds (120×7 = 840 seconds, about 14 minutes, by default). Keep it within how long a client is willing to wait.',
+    '已启用：网页通道失败后会再试（等待时间翻倍）': 'On: the web channel tries again after a failure (wait doubles each time)',
+    '已关闭：网页通道只跑一轮': 'Off: the web channel runs a single attempt',
+    '已保存：最多尝试 ': 'Saved: up to ',
+    ' 次，首轮等待 ': ' tries, first wait ',
     '已启用：每': 'On: every',
     '已启用：由网关代跑 web_search / web_fetch': 'On: the gateway runs web_search / web_fetch for the client',
     '已启用：账号单模型当日超过': 'On: once an account, for a single model, exceeds today',
@@ -1716,6 +1729,12 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '每日 Token 限额': 'Daily token limit',
     '每日活跃:': 'Daily activity:',
     '每日活跃打卡 (国际版)': 'Daily activity check-in (Global)',
+    '未活跃打卡一键打卡': 'Check in the not-yet-active accounts',
+    '未活跃打卡:': 'Inactive check-in:',
+    '未活跃打卡失败:': 'Inactive check-in failed: ',
+    '未发现待打卡的国际版账号': 'No Global account is waiting for a check-in',
+    '国际版账号今天都已打卡': 'Every Global account has checked in today',
+    '今日未打卡账号': 'Accounts not checked in today',
     '每日积分限额': 'Daily credit limit',
     '临期积分优先': 'Expiring credits first',
     '读取签到记录失败:': 'Failed to read the activity log:',
@@ -1954,12 +1973,16 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '该槽位被': 'This slot is used by',
     '该模型今日已达限额，仅此模型受限（本地 0 点恢复）': 'This model reached the daily limit; only this model is restricted (resets at local midnight)',
     '该模型暂无定价数据': 'No pricing data for this model yet',
+    '该模型被上游临时限流（429），仅此模型受限，到点自动恢复': 'This model is temporarily rate-limited upstream (429); only this model is restricted and it recovers automatically',
+    '该模型配额耗尽（code 6004），同账号其他模型不受影响': "This model's quota is exhausted (code 6004); the account's other models are unaffected",
     '当前窗口的起点未知（没有撞线记录，或记录已过期），已用按最近 24 小时统计，是剩余量的下界': 'The start of the current window is unknown (no cap on record, or a stale one); used counts the last 24h, a lower bound of what is left',
     // 模型冷却 pill 的动态文本按片段匹配（整串含模型名与时间戳，命不中整串键），
     // 所以片段键必须带前后空格，避免误命中其它文案。
     ' · 撞线 ': ' · hit at ',
     ' · 恢复 ': ' · back at ',
-    '撞线时间': 'Cap time',
+    // 禁用总览的「开始时间」列：模型级限流两类都有真实起始时刻（6004 撞线 /
+    // 临时 429 限流），列头用中性措辞，两类性质由「原因」列区分。
+    '开始时间': 'Started',
     '该账号仅此模型受限（上游判定额度用满）；撞线时间与恢复时间均为本地时间': 'only this model is restricted for this account (the upstream declared its quota exhausted); cap and reset times are local',
     '该账号仅此模型受限；时间为本地时间': 'only this model is restricted for this account; times are local',
     '该账号属于': 'This account belongs to the',
@@ -2167,7 +2190,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     // 撞线（6004）相关：pill 的动态片段 + 禁用总览的列头 + pill 悬停标题。
     " · 撞线 ": " · 撞線 ",
     " · 恢复 ": " · 恢復 ",
-    "撞线时间": "撞線時間",
+    "开始时间": "開始時間",
     "该账号仅此模型受限（上游判定额度用满）；撞线时间与恢复时间均为本地时间": "該帳號僅此模型受限（上游判定額度用滿）；撞線時間與恢復時間均為本地時間",
     " 个未绑定账号分配代理出口": " 個未繫結帳號分配代理出口",
     " 个槽位，记得点「保存槽位」": " 個槽位，記得點「儲存槽位」",
@@ -2379,6 +2402,19 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "已启用：429 时自动切换出站身份": "已啟用：429 時自動切換出站身份",
     "已启用：余额低于": "已啟用：餘額低於",
     "已启用：国际版打卡走网页通道": "已啟用：國際版打卡走網頁通道",
+    "失败重试": "失敗重試",
+    "最多尝试次数": "最多嘗試次數",
+    "首轮等待": "首輪等待",
+    "最多尝试 ": "最多嘗試 ",
+    " 次 · ": " 次 · ",
+    "只跑一轮": "只跑一輪",
+    "每轮等待": "每輪等待",
+    "网页通道一轮没跑完（会话还在 working）就再来一轮：最多尝试几次（含第一轮，可改），每轮等待时间是上一轮的两倍——默认 3 次、首轮 120 秒，也就是 120 / 240 / 480 秒。默认开启；会话只是慢的时候多等一轮通常就过了。": "網頁通道一輪沒跑完（會話還在 working）就再來一輪：最多嘗試幾次（含第一輪，可改），每輪等待時間是上一輪的兩倍——預設 3 次、首輪 120 秒，也就是 120 / 240 / 480 秒。預設開啟；會話只是慢的時候多等一輪通常就過了。",
+    "注意：等待时间逐轮翻倍，「次数」与「首轮等待」调大都是平方级的代价——一个始终跑不完的账号最坏能占住巡检 base×(2^次数−1) 秒（默认 120×7 = 840 秒 ≈ 14 分钟）。建议不超过客户端愿意空等的时长。": "注意：等待時間逐輪翻倍，「次數」與「首輪等待」調大都是平方級的代價——一個始終跑不完的帳號最壞能佔住巡檢 base×(2^次數−1) 秒（預設 120×7 = 840 秒 ≈ 14 分鐘）。建議不超過客戶端願意空等的時長。",
+    "已启用：网页通道失败后会再试（等待时间翻倍）": "已啟用：網頁通道失敗後會再試（等待時間翻倍）",
+    "已关闭：网页通道只跑一轮": "已關閉：網頁通道只跑一輪",
+    "已保存：最多尝试 ": "已保存：最多嘗試 ",
+    " 次，首轮等待 ": " 次，首輪等待 ",
     "已启用：每": "已啟用：每",
     "已启用：每 ": "已啟用：每 ",
     "已启用：由网关代跑 web_search / web_fetch": "已啟用：由閘道代跑 web_search / web_fetch",
@@ -2570,6 +2606,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "设置文件": "設定檔案",
     "设置里还没有任何 API Key，全部流量都落在下面的未归属行里。": "設定裡還沒有任何 API Key，全部流量都落在下面的未歸屬行裡。",
     "该模型暂无定价数据": "該模型暫無定價資料",
+    "该模型被上游临时限流（429），仅此模型受限，到点自动恢复": "該模型被上游臨時限流（429），僅此模型受限，到點自動恢復",
     "该模型配额耗尽（code 6004），同账号其他模型不受影响": "該模型配額耗盡（code 6004），同帳號其他模型不受影響",
     "该账号仅此模型受限；时间为本地时间": "該帳號僅此模型受限；時間為本地時間",
     "该账号属于": "該帳號屬於",
@@ -2679,7 +2716,10 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "），加密凭据可直接导入。": "），加密憑據可直接匯入。",
     "，登录后请在「设置」中修改。": "，登入後請在「設定」中修改。",
     "；关闭后不再向 OpenRouter 取价，也不再折算任何金额，相关列、卡片与取价控件一并隐藏（只留这个开关）。": "；關閉後不再向 OpenRouter 取價，也不再折算任何金額，相關列、卡片與取價控制元件一併隱藏（只留這個開關）。",
-    "；变体继承当前已关闭": "；變體繼承目前已關閉"
+    "；变体继承当前已关闭": "；變體繼承目前已關閉",
+    "未活跃打卡一键打卡": "未活躍打卡一鍵打卡",
+    "今日未打卡账号": "今日未打卡帳號",
+    "国际版账号今天都已打卡": "國際版帳號今天都已打卡"
   };
   var HANT_TERMS = {"下拉菜单":"下拉選單","任务":"任務","会话":"會話","余额":"餘額","保存":"儲存","信息":"資訊","内存":"記憶體","凭证":"憑證","删除":"刪除","刷新":"重新整理","加载":"載入","启用":"啟用","响应":"回應","在线":"線上","复制":"複製","失败":"失敗","导入":"匯入","导出":"匯出","当前":"目前","按钮":"按鈕","搜索":"搜尋","支持":"支援","数据":"資料","文件":"檔案","日志":"日誌","权限":"權限","添加":"新增","用户":"使用者","登录":"登入","禁用":"停用","积分":"積分","端口":"埠","筛选":"篩選","粘贴":"貼上","统计":"統計","缓存":"快取","编辑":"編輯","网关":"閘道","网络":"網路","视频":"影片","计划":"計畫","设置":"設定","请求":"請求","账号":"帳號","账户":"帳戶","质量":"品質","软件":"軟體","输入框":"輸入框","运行":"執行","链接":"連結","错误":"錯誤","队列":"佇列","页面":"頁面","默认":"預設"};
   Object.keys(HANT_TERMS).forEach(function(k){ HANT_PHRASES[k] = HANT_TERMS[k]; });
@@ -3478,6 +3518,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     <div class="tb-group">
     <button class="sec" onclick="fetchCredits(this)">一键刷新积分</button>
     <button class="sec" onclick="refreshAccounts(this)" title="逐个刷新所有账号的上游访问凭证（相当于对每个账号点一次「刷新凭证」）">一键刷新凭证</button>
+    <button class="sec" onclick="testAccounts(this)" title="逐个真发一条最小请求，并同时检查本机到上游的网络：能分清「账号坏了」和「本机断网了」，测试通过还会清掉该账号的熔断/降权计数">一键测试</button>
     </div>
     <div class="tb-group">
     <button class="sec" id="btnCheckin" onclick="doCheckin(this)" style="display:none">Buddy 加油站签到</button>
@@ -3564,10 +3605,14 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="primary" id="btnPageDailyChat" onclick="doDailyChat(this)">每日活跃打卡 (国际版)</button>
+        <!-- 未活跃打卡一键打卡：只补跑今天还没有活跃打卡记录的国际版账号。
+             要打的那批与左边「今日活跃打卡状态」卡片悬停时列出的名单完全同源，
+             所以不会把已经打过的账号再打一遍、白烧它的额度。 -->
+        <button class="primary" id="btnPageDailyChatPending" onclick="doDailyChatPending(this)">未活跃打卡一键打卡</button>
       </div>
     </div>
     <div class="cards" style="margin-bottom:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
-      <div class="card accent2">
+      <div class="card accent2" id="cardIntlTodayActive">
         <div class="k">今日活跃打卡状态</div>
         <div class="v" id="intlTodayActiveState" style="font-size:20px">-</div>
       </div>
@@ -4171,6 +4216,48 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <section>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
           <div>
+        <section>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+            <div>
+        <section>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+            <div>
+              <h2 style="margin:0">启用 Anthropic Messages 接口 (Claude) <em id="setAnthropicMessagesState"></em></h2>
+              <div style="font-size:12px;color:var(--dim);margin-top:4px">
+                允许 Claude Code / Anthropic SDK 访问网关 /v1/messages。网关对内将其转换为 OpenAI Chat Completions 协议转发。
+              </div>
+              <div style="font-size:12px;color:var(--warn);margin-top:4px">
+                注意：转换层目前未保留 cache_control 语义，在长会话中可能因缓存命中率降低而导致积分消耗偏高。请知晓风险后再开启。默认关闭。
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+                <input id="setAnthropicMessages" type="checkbox" style="width:16px;height:16px">
+                启用 Messages 接口
+              </label>
+              <button onclick="saveAnthropicMessages(this)">保存</button>
+            </div>
+          </div>
+        </section>
+
+              <h2 style="margin:0">免费额度耗尽回退积分版 <em id="setCreditFallbackState"></em></h2>
+              <div style="font-size:12px;color:var(--dim);margin-top:4px">
+                国际版 deepseek-v4.1-flash 免费额度在所有账号均耗尽（6004 撞线）后，自动回退到 deepseek-v4.1-flash-sg 付费通道。默认关闭。
+              </div>
+              <div style="font-size:12px;color:var(--warn);margin-top:4px">
+                注意：回退后将消耗账户中的真实积分（x0.03 倍率），请确认知晓积分成本后再开启。
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+                <input id="setCreditFallback" type="checkbox" style="width:16px;height:16px">
+                启用积分回退
+              </label>
+              <button onclick="saveCreditFallback(this)">保存</button>
+            </div>
+          </div>
+        </section>
+
             <h2 style="margin:0">自动切换出站身份 <em id="setAutoSwitchState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
               某账号在某模型上被上游限流（429）时，自动在 WB / VSC / CLI 之间换身分重试，每轮最多 4 次。三条身分走不同的配额通道，开启后 429 会少一些。默认关闭。
@@ -4213,6 +4300,30 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         </div>
         <div style="font-size:12px;color:var(--dim);margin-top:6px">
           清单是国际版目录里的全部模型，标价 0.00x 的标成免费并排在前面。每日活跃只是一次「Hi」的会话，默认用内置的免费模型；换一个是为了把活跃挪出真实流量正在用的那个模型的窗口额度。选到付费模型的话，活跃就会按那个模型花积分。
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <label class="switch">
+            <input id="setDailyChatWebRetry" type="checkbox" onchange="saveDailyChatWebRetry()">
+            <span class="switch-track"></span>
+            <span>失败重试</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+            最多尝试次数
+            <input id="setDailyChatWebAttempts" type="number" min="1" step="1" style="width:70px">
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+            首轮等待
+            <input id="setDailyChatWebTimeout" type="number" min="1" step="1" style="width:90px">
+            秒
+          </label>
+          <button onclick="saveDailyChatWebTuning(this)">保存</button>
+          <span id="setDailyChatWebRetryState" style="font-size:12px;color:var(--dim)"></span>
+        </div>
+        <div style="font-size:12px;color:var(--dim);margin-top:6px">
+          网页通道一轮没跑完（会话还在 working）就再来一轮：最多尝试几次（含第一轮，可改），每轮等待时间是上一轮的两倍——默认 3 次、首轮 120 秒，也就是 120 / 240 / 480 秒。默认开启；会话只是慢的时候多等一轮通常就过了。
+        </div>
+        <div style="font-size:12px;color:var(--warn);margin-top:4px">
+          注意：等待时间逐轮翻倍，「次数」与「首轮等待」调大都是平方级的代价——一个始终跑不完的账号最坏能占住巡检 base×(2^次数−1) 秒（默认 120×7 = 840 秒 ≈ 14 分钟）。建议不超过客户端愿意空等的时长。
         </div>
       </section>
 
@@ -4535,6 +4646,26 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     <div class="modal-ft">
       <button class="sec" onclick="closeLogin()">关闭</button>
       <button onclick="restartLogin()">重新生成链接</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="testAllModal">
+  <div class="modal" role="dialog" aria-modal="true" style="width:min(820px,100%)">
+    <div class="modal-hd">
+      <h2>一键测试结果</h2>
+      <button class="modal-x" onclick="closeTestAll()" aria-label="关闭">×</button>
+    </div>
+    <div class="modal-bd">
+      <p class="hint" style="margin-top:0">
+        每个已启用账号各发一条最小请求（真实调用上游，会消耗极少量额度）。
+        测试通过会顺手清掉该账号的熔断 / 降权 / 软限流计数，所以不会出现「测完还是冷却」。
+      </p>
+      <div id="testAllBody"><p class="hint">正在测试…</p></div>
+    </div>
+    <div class="modal-ft">
+      <button class="sec" onclick="testAccounts(null)">重新测试</button>
+      <button class="sec" onclick="closeTestAll()">关闭</button>
     </div>
   </div>
 </div>
@@ -5580,6 +5711,43 @@ async function doDailyChat(btn){
   finally { btn.disabled = false; btn.textContent = ot; }
 }
 
+/* 今天还没有活跃打卡记录的国际版账号。判定口径与「今日活跃打卡状态」卡片完全一致
+ * （都用 activityStatusOf()），所以卡片上悬停看到的未打卡名单，就是下面按钮要打的那批。 */
+function pendingDailyChatAccounts(){
+  const all = window.ACCOUNTS || [];
+  return all.filter(a => a.realm === 'intl' && a.enabled).filter(a => {
+    const s = activityStatusOf(a);
+    return !(s.kind === 'ok' || s.kind === 'done');
+  });
+}
+
+// 卡片悬停提示：把未打卡账号逐个列出来，省得去账号页一个个比对。
+function pendingDailyChatTip(pending){
+  const MAX = 30;
+  const lines = pending.slice(0, MAX).map(a => '· ' + (a.nickname || String(a.uid || '').slice(0, 8)));
+  if(pending.length > MAX) lines.push('· …');
+  return '今日未打卡账号 (' + pending.length + ')：\n' + lines.join('\n');
+}
+
+/* 未活跃打卡一键打卡：只对今天还没打过卡的国际版账号补跑，名单交给服务端精确执行。
+ * 全部已打卡时直接提示，不发请求——重复打卡不会多给积分，只会白烧账号额度。 */
+async function doDailyChatPending(btn){
+  const pending = pendingDailyChatAccounts();
+  if(!pending.length){ toast("国际版账号今天都已打卡", "ok"); return; }
+  btn.disabled = true; const ot = btn.textContent; btn.textContent = "打卡中...";
+  try {
+    const r = await postJSON("/accounts/daily-chat", {uids: pending.map(a => String(a.uid))});
+    const res = r.results || [];
+    if(!res.length) toast("未发现待打卡的国际版账号", "warn");
+    else {
+      const summary = res.map(x => (x.nickname||x.uid.slice(0,6)) + ": " + (x.ok ? "活跃打卡成功" : (x.error||x.msg))).join("；");
+      toast("未活跃打卡: " + summary, res.some(x => x.ok) ? "ok" : "warn");
+    }
+    await refreshActiveRealm(); window.updateUI(); loadAccounts(); loadModels();
+  }catch(e){ toast("未活跃打卡失败: " + e.message, "bad"); }
+  finally { btn.disabled = false; btn.textContent = ot; }
+}
+
 /* 网页通道打卡：只建网页端会话（官方每日活跃只认网页端对话）。
  * 会真的起一次任务，所以先确认一次。 */
 async function doDailyChatWeb(btn){
@@ -6494,16 +6662,24 @@ async function loadActivityToday(){
 function updateTaskPageCheckinCards(){
   const allList = window.ACCOUNTS || [];
   const stateEl = document.getElementById("intlTodayActiveState");
+  const intlCard = document.getElementById("cardIntlTodayActive");
   if(stateEl){
+    // 卡片（与卡片里的数值）都挂上同一个 title，鼠标落在卡片任何位置都能看到名单。
+    const setCardTip = tip => {
+      stateEl.title = tip;
+      if(intlCard) intlCard.title = tip;
+    };
     const intlAccts = allList.filter(a => a.realm === 'intl' && a.enabled);
     if(!intlAccts.length){
       stateEl.textContent = '无国际账号';
+      setCardTip('');
     } else {
       const isDone = a => {
         const s = activityStatusOf(a);
         return s.kind === 'ok' || s.kind === 'done';
       };
-      const doneCount = intlAccts.filter(isDone).length;
+      const pending = intlAccts.filter(a => !isDone(a));
+      const doneCount = intlAccts.length - pending.length;
       if(doneCount === intlAccts.length){
         stateEl.innerHTML = '<span style="color:var(--accent2)">今日已打卡 (' + doneCount + '/' + intlAccts.length + ')</span>';
       } else if(doneCount > 0){
@@ -6511,6 +6687,8 @@ function updateTaskPageCheckinCards(){
       } else {
         stateEl.innerHTML = '<span style="color:var(--warn)">今日未打卡 (0/' + intlAccts.length + ')</span>';
       }
+      // 悬停看未打卡名单：与「未活跃打卡一键打卡」按钮要打的那批同源，看到什么就打什么。
+      setCardTip(pending.length ? pendingDailyChatTip(pending) : '国际版账号今天都已打卡');
     }
   }
 
@@ -6839,11 +7017,20 @@ function disabledRows(){
     }
     (Array.isArray(a.modelCooldowns) ? a.modelCooldowns : []).forEach(c => {
       if(!c || !c.model) return;
-      // 带 cappedAt 的是 6004 撞线（恢复时间来自上游）：撞线时间单独一列，
-      // 没有撞线记录的临时限流窗口该列为「—」。
+      // 带 cappedAt 的是 6004 撞线（恢复时间来自上游）：撞线时间单独一列。
       const hit = c.cappedAt ? fmtCoolAt(c.cappedAt) : '';
+      // 起始时刻：6004 用上游给的撞线时刻；其余 429 用 hub 记下的限流时刻
+      // （c.startedAt）。两者都取不到时才留空——不用假值填充表格。
+      const started = hit || (c.startedAt ? fmtCoolAt(c.startedAt) : '');
+      // 两类模型级限流的原因必须分开写：带 cappedAt 的是上游 6004 配额耗尽
+      // （恢复时间以小时计），不带 cappedAt 的只是一次 429 临时限流（60s~10m
+      // 的短窗口，到点自动恢复）。共用一句「配额耗尽」会把短时 parking 说成
+      // 要等几小时，也让真正该关注的 6004 淹没在里面。
       rows.push({who, realm, scope: c.model, kind: '上游限流', detail, cappedAt: hit,
-                 reason: '该模型配额耗尽（code 6004），同账号其他模型不受影响',
+                 startedAt: started,
+                 reason: hit
+                   ? '该模型配额耗尽（code 6004），同账号其他模型不受影响'
+                   : '该模型被上游临时限流（429），仅此模型受限，到点自动恢复',
                  until: fmtCoolAt(c.expiresAt)});
     });
     if(a.dailyLimitBlocked){
@@ -6888,7 +7075,7 @@ function renderDisabled(){
     + '<th style="text-align:left">范围</th>'
     + '<th style="text-align:center;width:100px">类型</th>'
     + '<th style="text-align:left">原因</th>'
-    + '<th style="text-align:center;width:156px">撞线时间</th>'
+    + '<th style="text-align:center;width:156px">开始时间</th>'
     + '<th style="text-align:center;width:156px">恢复时间</th>'
     + '</tr></thead><tbody>'
     + rows.map(r => '<tr>'
@@ -6898,8 +7085,10 @@ function renderDisabled(){
         + '<td style="text-align:center"><span class="badge ' + badge(r.kind) + '">' + esc(r.kind) + '</span></td>'
         + '<td style="text-align:left"' + (r.detail ? ' data-tip="' + esc(r.detail) + '"' : '') + '>'
           + esc(r.reason) + '</td>'
-        // 撞线时间：只有 6004 撞线（持久化的 model_caps）才有；其余行「—」。
-        + '<td style="text-align:center">' + esc(r.cappedAt || '—') + '</td>'
+        // 开始时间：这一行是何时进入该状态的。模型级限流两类都有真实时刻——
+        // 6004 是上游给的撞线时刻（cappedAt），临时 429 是 hub 记下的限流时刻
+        // （startedAt）；其余行类没有起始时刻，留「—」。
+        + '<td style="text-align:center">' + esc(r.startedAt || '—') + '</td>'
         + '<td style="text-align:center">' + (r.manual ? '—（需手动启用）' : (r.until || '—')) + '</td>'
         + '</tr>').join('')
     + '</tbody></table></div>';
@@ -7273,6 +7462,9 @@ async function testAccount(uid, btn){
     const r = await postJSON('/accounts/test', {uid: uid});
     if(r.ok){
       toast('测试通过 (' + r.elapsed_ms + 'ms) [' + r.model + ']: ' + (r.reply || '正常'), 'ok');
+    } else if(r.network){
+      // 本机断网时上游一个字节都没收到：说清是网络问题，别让人以为账号坏了。
+      toast('本机网络不可用: ' + (r.error || 'DNS/路由失败'), 'bad');
     } else {
       toast('测试失败: ' + (r.error || r.status || '异常'), 'bad');
     }
@@ -7282,6 +7474,95 @@ async function testAccount(uid, btn){
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = '测试'; }
   }
+}
+
+/* 一键测试：区域内每个已启用账号 + 本机连通性一次看全。
+   池子出问题时最需要分辨的就是「账号真不行」与「本机没网 / 只是被本地窗口关着」，
+   红点一屏的时候，逐个点测出来的结论往往是错的。 */
+function openTestAll(){
+  const m = document.getElementById('testAllModal');
+  const body = document.getElementById('testAllBody');
+  if(body) body.innerHTML = '<p class="hint">正在测试…</p>';
+  if(m) m.classList.add('show');
+}
+function closeTestAll(){
+  const m = document.getElementById('testAllModal');
+  if(m) m.classList.remove('show');
+}
+
+async function testAccounts(btn){
+  if(btn){ btn.disabled = true; btn.textContent = '测试中...'; }
+  openTestAll();
+  try{
+    const r = await postJSON('/accounts/test', {realm: window.VIEW_REALM});
+    renderTestAll(r);
+    const s = r.summary || {};
+    if(s.networkDown){
+      toast('本机网络不通：' + ((r.network || {}).error || 'DNS/路由失败') + '（账号未被计入熔断）', 'bad');
+    } else {
+      toast('一键测试: ' + (s.passed || 0) + '/' + (s.tested || 0) + ' 通过 (' + (s.elapsed_ms || 0) + 'ms)',
+            (s.failed ? 'warn' : 'ok'));
+    }
+    await loadAccounts();
+  }catch(e){
+    const body = document.getElementById('testAllBody');
+    if(body) body.innerHTML = '<p class="hint" style="color:var(--warn)">测试请求失败: ' + esc(e.message) + '</p>';
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '一键测试'; }
+  }
+}
+
+function renderTestAll(r){
+  const body = document.getElementById('testAllBody');
+  if(!body) return;
+  const net = r.network || {};
+  const s = r.summary || {};
+  const rows = r.results || [];
+  let html = '';
+  // 本机连通性单独一行放最前面：它不通的话，下面的红点一个都不能算账号的账。
+  html += '<div style="background:' + (net.ok ? 'var(--accent2-soft)' : 'var(--bad-soft)')
+    + ';border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px">'
+    + '<b>' + (net.ok ? '本机网络正常' : '本机网络不通') + '</b>'
+    + '<span class="hint" style="margin-left:8px">' + esc(net.host || '')
+    + (net.ip ? ' → ' + esc(net.ip) : '')
+    + (net.dns_ms !== null && net.dns_ms !== undefined ? ' · DNS ' + net.dns_ms + 'ms' : '')
+    + (net.tcp_ms !== null && net.tcp_ms !== undefined ? ' · TCP ' + net.tcp_ms + 'ms' : '')
+    + (net.ok ? '' : ' · ' + esc(net.error || ''))
+    + '</span></div>';
+  html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:13px">'
+    + '<span>共测 <b>' + esc(String(s.tested || 0)) + '</b></span>'
+    + '<span>通过 <b style="color:var(--accent2)">' + esc(String(s.passed || 0)) + '</b></span>'
+    + '<span>失败 <b style="color:var(--warn)">' + esc(String(s.failed || 0)) + '</b></span>'
+    + '<span class="hint">模型 ' + esc(s.model || '') + ' · 耗时 ' + esc(String(s.elapsed_ms || 0)) + 'ms</span>'
+    + '</div>';
+  if(!rows.length){
+    html += '<p class="hint">该区域没有已启用的账号。</p>';
+  } else {
+    html += '<div class="table-wrap"><table class="data-cards"><thead><tr>'
+      + '<th style="text-align:left">账号</th><th style="text-align:center">结果</th>'
+      + '<th style="text-align:center;width:90px">耗时</th>'
+      + '<th style="text-align:left">回复 / 原因</th></tr></thead><tbody>';
+    rows.forEach(row => {
+      // 本机断网的行单独标出来：这不是账号的问题，不该跟真失败画成一个颜色。
+      const badge = row.ok ? '<span class="badge ok">通过</span>'
+                  : row.network ? '<span class="badge warn">本机网络</span>'
+                  : '<span class="badge bad">失败</span>';
+      const detail = row.ok ? (row.reply || '正常') : (row.error || '');
+      // 失败行带上「连续失败 N 次」：这是熔断的唯一依据，看得见才知道离熔断还有多远。
+      const ladder = (!row.ok && Number(row.fails || 0) > 0)
+        ? '（连续失败 ' + Number(row.fails) + ' 次）' : '';
+      html += '<tr>'
+        + '<td style="text-align:left"><b>' + esc(row.nickname || (row.uid || '').slice(0, 8)) + '</b>'
+        + '<div class="mono" style="font-size:11px;color:var(--dim)">'
+        + esc((row.uid || '').slice(0, 8)) + ' · ' + esc(row.realm === 'cn' ? '国内版' : '国际版') + '</div></td>'
+        + '<td style="text-align:center">' + badge + '</td>'
+        + '<td style="text-align:center">' + esc(String(row.elapsed_ms || 0)) + 'ms</td>'
+        + '<td style="text-align:left;font-size:12px">' + esc(detail + ladder) + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  body.innerHTML = html;
 }
 async function refreshAccounts(btn){
   if(btn){ btn.disabled = true; btn.textContent = '刷新中...'; }
@@ -9354,6 +9635,22 @@ async function loadSettings(showToast){
         if(gaps) gaps.innerHTML = '';
       }
       const autoSwitch = data.auto_switch_product === true;
+      const creditFallback = data.free_model_credit_fallback === true;
+      const anthropicMsg = data.enable_anthropic_messages === true;
+      const anthropicMsgInput = document.getElementById('setAnthropicMessages');
+      if(anthropicMsgInput) anthropicMsgInput.checked = anthropicMsg;
+      const anthropicMsgState = document.getElementById('setAnthropicMessagesState');
+      if(anthropicMsgState){
+        anthropicMsgState.textContent = anthropicMsg ? '(已启用)' : '(未启用)';
+        anthropicMsgState.style.color = anthropicMsg ? 'var(--accent2)' : 'var(--dim)';
+      }
+      const creditFallbackInput = document.getElementById('setCreditFallback');
+      if(creditFallbackInput) creditFallbackInput.checked = creditFallback;
+      const creditFallbackState = document.getElementById('setCreditFallbackState');
+      if(creditFallbackState){
+        creditFallbackState.textContent = creditFallback ? '(已启用)' : '(未启用)';
+        creditFallbackState.style.color = creditFallback ? 'var(--accent2)' : 'var(--dim)';
+      }
       const autoSwitchInput = document.getElementById('setAutoSwitch');
       if(autoSwitchInput) autoSwitchInput.checked = autoSwitch;
       const autoSwitchState = document.getElementById('setAutoSwitchState');
@@ -9370,6 +9667,33 @@ async function loadSettings(showToast){
         dailyWebState.style.color = dailyWeb ? 'var(--accent2)' : 'var(--dim)';
       }
       renderDailyChatModel(data.daily_chat_model || '', data.daily_chat_model_default || '');
+      // 网页通道重试：没配过时后端给的是「开」，只有显式 false 才当关闭。
+      const dailyWebRetry = data.daily_chat_web_retry !== false;
+      const dailyWebRetryInput = document.getElementById('setDailyChatWebRetry');
+      if(dailyWebRetryInput) dailyWebRetryInput.checked = dailyWebRetry;
+      const dailyWebTimeoutDefault = Number(data.daily_chat_web_timeout_default || 120);
+      const dailyWebTimeout = Number(data.daily_chat_web_timeout || dailyWebTimeoutDefault);
+      const dailyWebAttemptsDefault = Number(data.daily_chat_web_attempts_default || 3);
+      const dailyWebAttempts = Number(data.daily_chat_web_attempts || dailyWebAttemptsDefault);
+      const dailyWebAttemptsInput = document.getElementById('setDailyChatWebAttempts');
+      if(dailyWebAttemptsInput){
+        dailyWebAttemptsInput.value = String(dailyWebAttempts);
+        // 关掉重试就只跑一轮，次数没有意义；等待时间仍对那唯一一轮有效，保持可改。
+        dailyWebAttemptsInput.disabled = !dailyWebRetry;
+      }
+      const dailyWebTimeoutInput = document.getElementById('setDailyChatWebTimeout');
+      if(dailyWebTimeoutInput) dailyWebTimeoutInput.value = String(dailyWebTimeout);
+      const dailyWebRetryState = document.getElementById('setDailyChatWebRetryState');
+      if(dailyWebRetryState){
+        // 状态行把实际的等待序列算出来，省得对着两个数字自己乘。
+        const waits = [];
+        const rounds = dailyWebRetry ? dailyWebAttempts : 1;
+        for(let i = 0; i < rounds; i++) waits.push(dailyWebTimeout * Math.pow(2, i));
+        dailyWebRetryState.textContent = dailyWebRetry
+          ? ('最多尝试 ' + dailyWebAttempts + ' 次 · ' + waits.join(' / ') + ' 秒')
+          : ('只跑一轮 · ' + dailyWebTimeout + ' 秒');
+        dailyWebRetryState.style.color = dailyWebRetry ? 'var(--accent2)' : 'var(--dim)';
+      }
       const localWeb = data.local_web_tools === true;
       const localWebInput = document.getElementById('setLocalWebTools');
       if(localWebInput) localWebInput.checked = localWeb;
@@ -9430,6 +9754,7 @@ async function loadSettings(showToast){
       masked: k.masked || '',
       realm: k.realm || '',
       models: Array.isArray(k.models) ? k.models.slice() : [],
+      concurrency_limit: parseInt(k.concurrency_limit || 0, 10) || 0,
       enabled: k.enabled !== false,
       created_at: k.created_at || '',
       _editing: false,
@@ -9905,6 +10230,36 @@ async function refreshPricingNow(btn){
   }
 }
 
+async function saveAnthropicMessages(btn){
+  const el = document.getElementById('setAnthropicMessages');
+  const value = !!(el && el.checked);
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', {enable_anthropic_messages: value});
+    toast(value ? '已启用：Anthropic Messages 接口' : '已关闭：Anthropic Messages 接口', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function saveCreditFallback(btn){
+  const el = document.getElementById('setCreditFallback');
+  const value = !!(el && el.checked);
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', {free_model_credit_fallback: value});
+    toast(value ? '已启用：免费额度耗尽自动回退付费积分版' : '已关闭自动回退付费积分版', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
 async function saveAutoSwitchProduct(btn){
   const el = document.getElementById('setAutoSwitch');
   const value = !!(el && el.checked);
@@ -9927,6 +10282,50 @@ async function saveDailyChatWeb(btn){
   try {
     await postJSON('/settings/save', {daily_chat_web: value});
     toast(value ? '已启用：国际版打卡走网页通道' : '已关闭：国际版打卡只发桌面端对话', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+/* 网页通道失败重试。后端只接受严格布尔，所以这里直接发勾选状态；存失败时
+   把开关拨回去，免得界面显示一个其实没落盘的状态。 */
+async function saveDailyChatWebRetry(){
+  const el = document.getElementById('setDailyChatWebRetry');
+  const value = !!(el && el.checked);
+  try {
+    await postJSON('/settings/save', {daily_chat_web_retry: value});
+    toast(value ? '已启用：网页通道失败后最多重试 3 次（等待翻倍）'
+                : '已关闭：网页通道只跑一轮', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+    if(el) el.checked = !value;
+  }
+}
+
+/* 每轮等待时间（秒）与最多尝试次数。与「上游响应头超时」同一套收口：空值、
+   小数、非数字就地拦下，不发上去换一个 400 回来。上限由后端把关。 */
+async function saveDailyChatWebTuning(btn){
+  const attemptsEl = document.getElementById('setDailyChatWebAttempts');
+  const timeoutEl = document.getElementById('setDailyChatWebTimeout');
+  const attempts = Math.floor(Number(attemptsEl && attemptsEl.value));
+  const timeout = Math.floor(Number(timeoutEl && timeoutEl.value));
+  if(!isFinite(attempts) || attempts < 1){
+    toast('请输入不小于 1 的整数次数', 'bad');
+    return;
+  }
+  if(!isFinite(timeout) || timeout < 1){
+    toast('请输入不小于 1 的整数秒', 'bad');
+    return;
+  }
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', {daily_chat_web_attempts: attempts,
+                                      daily_chat_web_timeout: timeout});
+    toast('已保存：最多尝试 ' + attempts + ' 次，首轮等待 ' + timeout + ' 秒', 'ok');
     loadSettings();
   } catch(e) {
     toast('保存失败: ' + e.message, 'bad');
@@ -10229,7 +10628,12 @@ function renderKeyRows(){
         +     '<div style="font-size:12px;color:var(--dim);margin-bottom:4px;font-weight:500">出口绑定</div>'
         +     '<select id="editKeyRealm_' + i + '" style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;color:var(--fg)">'
         +       options
-        +     '</select>'
+        +       '</select>'
+        +   '</div>'
+        +   '<div>'
+        +     '<div style="font-size:12px;color:var(--dim);margin-bottom:4px;font-weight:500">最大并发限制 <span style="color:var(--dim-light)">(选填，0 = 不限)</span></div>'
+        +     '<input type="number" min="0" max="1000" id="editKeyConc_' + i + '" value="' + (row.concurrency_limit || '') + '" placeholder="0 代表不限制" '
+        +       'style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;color:var(--fg)">'
         +   '</div>'
         +   '<div style="grid-column:1 / -1">'
         +     '<div style="font-size:12px;color:var(--dim);margin-bottom:4px;font-weight:500">模型限制 <span style="color:var(--dim-light)">(选填，留空 = 不限制)</span></div>'
@@ -10262,6 +10666,9 @@ function renderKeyRows(){
       ? '<span class="realm-badge-cn" style="font-size:11px">固定国内版出口</span>'
       : '<span class="badge s" style="font-size:11px">跟随面板切换</span>';
 
+    const concBadge = (row.concurrency_limit && row.concurrency_limit > 0)
+      ? '<span class="badge s mini" style="font-size:11px">并发上限 ' + row.concurrency_limit + '</span>'
+      : '';
     const modelBadge = (Array.isArray(row.models) && row.models.length)
       ? '<span class="badge s" style="font-size:11px">限 ' + esc(modelPatternsText(row.models)) + '</span>'
       : '';
@@ -10277,6 +10684,7 @@ function renderKeyRows(){
       +       statusBadge
       +       realmBadge
       +       modelBadge
+        +       concBadge
       +     '</div>'
       +     '<div style="font-size:12px;color:var(--dim);display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
       +       '<span>Key: <span class="mono" style="color:var(--fg);font-weight:500">' + esc(displayKey) + '</span></span>'
@@ -10324,6 +10732,7 @@ async function saveSingleKey(index, btn){
   const realmSelect = document.getElementById('editKeyRealm_' + index);
   const keyInput = document.getElementById('editKeyValue_' + index);
   const modelsInput = document.getElementById('editKeyModels_' + index);
+    const concInput = document.getElementById('editKeyConc_' + index);
 
   const name = nameInput ? nameInput.value.trim() : (row.name || '');
   const realm = realmSelect ? realmSelect.value : (row.realm || '');
@@ -10337,6 +10746,7 @@ async function saveSingleKey(index, btn){
   row.name = name || '未命名';
   row.realm = realm;
   row.models = parseModelPatterns(modelsInput ? modelsInput.value : modelPatternsText(row.models));
+    row.concurrency_limit = Math.max(0, parseInt((concInput ? concInput.value : row.concurrency_limit) || 0, 10) || 0);
   if(keyVal) row.key = keyVal;
   row._editing = false;
 
@@ -10395,6 +10805,7 @@ function addApiKeyRow(){
     key: randomKeyValue(),
     realm: '',
     models: [],
+      concurrency_limit: 0,
     enabled: true,
     masked: '',
     _editing: true
@@ -10467,6 +10878,7 @@ async function saveApiKeys(btn){
       name: row.name || '',
       realm: row.realm || '',
       models: row.models || [],
+        concurrency_limit: parseInt(row.concurrency_limit || 0, 10) || 0,
       enabled: row.enabled !== false,
       // Blank means "keep the stored key", which the server honours per row.
       key: (row.key || '').trim(),

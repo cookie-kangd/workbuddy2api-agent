@@ -150,7 +150,8 @@ assert.ok(!intl.markup.includes('INTL正常'), 'an enabled, unlimited account pr
   assert.ok(cn.markup.includes(kind), 'cn view keeps the ' + kind + ' badge'));
 assert.ok(intl.markup.includes('积分限额'), 'intl view keeps the 积分限额 badge');
 assert.ok(cn.markup.includes('—（需手动启用）'), 'manual rows keep their 恢复时间 cell');
-assert.ok(intl.markup.includes('该模型配额耗尽（code 6004）'), 'model cooldown reason unchanged');
+assert.ok(intl.markup.includes('该模型被上游临时限流（429）'), 'model cooldown without a cap reads as a transient 429');
+assert.ok(!intl.markup.includes('code 6004'), 'a plain 429 must not be labelled as a quota cap');
 assert.ok(!cn.markup.includes('剩余积分低于保留线'), '积分限额 is not a CN state here');
 
 // 6. One realm filter expression, shared by the account cards and this section:
