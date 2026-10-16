@@ -1362,12 +1362,15 @@ CLAUDE_DESKTOP_PROFILE_NAME = "WB Proxy"
 CLAUDE_DESKTOP_CONFIG_FILE = "claude_desktop_config.json"
 CLAUDE_DESKTOP_LIBRARY_DIR = "configLibrary"
 
-#: The role ids Claude Desktop accepts, in picker order.
+#: The role ids Claude Desktop accepts, in picker order. The `wb` suffix is
+#: deliberate: these must not collide with Anthropic's own model names, or a
+#: user cannot tell whether a picker entry is the gateway's or the official
+#: model - and every entry here maps to the same upstream model anyway.
 CLAUDE_DESKTOP_ROUTES = (
-    "claude-sonnet-5",
-    "claude-opus-5",
-    "claude-haiku-4-5",
-    "claude-fable-5",
+    ("claude-sonnet-wb", "Sonnet"),
+    ("claude-opus-wb", "Opus"),
+    ("claude-haiku-wb", "Haiku"),
+    ("claude-fable-wb", "Fable"),
 )
 
 
@@ -1494,12 +1497,55 @@ def _claude_desktop_profile_for(ctx, current=None):
         "inferenceGatewayBaseUrl": root,
         "inferenceGatewayApiKey": ctx.get("api_key") or "",
         "inferenceGatewayAuthScheme": "bearer",
-        "inferenceModels": list(CLAUDE_DESKTOP_ROUTES),
+        "inferenceModels": _claude_desktop_inference_models(ctx),
     })
     for key in CLAUDE_DESKTOP_PROFILE_SEED:
         profile.setdefault(key, True if key == "disableDeploymentModeChooser"
                            else ["*"])
     return profile
+
+
+def _claude_desktop_inference_models(ctx):
+    """The profile's model list: role ids plus the label the picker shows.
+
+    Claude Desktop only accepts `claude-<role>-<something>` ids, so the real
+    model name cannot be the id itself. Every model the gateway offers is
+    advertised (the schema allows 200), the id is a safe role-shaped slug built
+    from the model name, and the real name travels in `labelOverride` - the
+    same trick CC Switch uses, and what ends up on screen.
+    """
+    out = []
+    seen = set()
+    for entry in ctx.get("models") or []:
+        mid = (entry.get("id") if isinstance(entry, dict) else entry) or ""
+        mid = str(mid).strip()
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        out.append({"name": _claude_route_slug(mid, len(out)),
+                    "labelOverride": mid})
+    if out:
+        return out
+    # Nothing was offered (a picker-less apply): fall back to the single model
+    # this integration was configured with, under the first role slot.
+    model = str(ctx.get("model") or "").strip()
+    if not model:
+        return [{"name": route_id, "labelOverride": role}
+                for route_id, role in CLAUDE_DESKTOP_ROUTES]
+    return [{"name": "claude-sonnet-wb", "labelOverride": model}]
+
+
+def _claude_route_slug(model, index):
+    """A Claude-Desktop-safe id that still names the upstream model.
+
+    The id has to start with `claude-<role>-` (the app rejects the whole group
+    otherwise). The rest is ours, so the model name is carried verbatim after
+    an `=` marker: the gateway splits on it and gets the exact model back,
+    dots and all, instead of guessing from a lossy normalisation.
+    """
+    role = CLAUDE_DESKTOP_ROUTES[index % len(CLAUDE_DESKTOP_ROUTES)][0]
+    return "%s=%s" % (role, model)
+    return out
 
 
 def _claude_desktop_installed(home):

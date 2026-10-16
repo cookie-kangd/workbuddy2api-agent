@@ -70,8 +70,18 @@ check("_meta.json sits next to the profile",
 print()
 print("[2] apply writes the profile Claude Desktop accepts")
 
+# The gateway's whole catalog, the way the panel sends it.
+GATEWAY_MODELS = [
+    {"id": "deepseek-v4.1-flash", "context_window": 1000000},
+    {"id": "gpt-6-astra", "context_window": 128000},
+    {"id": "glm-5.3", "context_window": 1000000},
+    {"id": "kimi-k3", "context_window": 1000000},
+    {"id": "hy3", "context_window": 192000},
+]
+
 result = A.integrate(state, "claude-desktop", "http://127.0.0.1:8788/v1",
-                     "sk-cd-test", model="deepseek-v4.1-flash", home=home)
+                     "sk-cd-test", model="deepseek-v4.1-flash",
+                     models=GATEWAY_MODELS, home=home)
 written = {entry["path"] for entry in result["files"]}
 check("the gateway profile and the library index are written",
       written == {paths["profile"], paths["meta"]}, sorted(written))
@@ -90,10 +100,32 @@ check("deployment chooser is disabled",
 check("cowork egress is opened for the gateway",
       profile.get("coworkEgressAllowedHosts") == ["*"], profile)
 check("every advertised model id is Claude-Desktop-safe",
-      all(str(m).startswith("claude-") for m in profile.get("inferenceModels") or []),
+      all(str(m.get("name", "")).startswith("claude-")
+          for m in profile.get("inferenceModels") or []),
       profile.get("inferenceModels"))
-check("the raw upstream model id is never advertised",
-      "deepseek-v4.1-flash" not in json.dumps(profile), profile)
+offered = {str(m.get("labelOverride")): str(m.get("name"))
+           for m in profile.get("inferenceModels") or [] if isinstance(m, dict)}
+check("every gateway model is offered",
+      sorted(offered) == sorted(m["id"] for m in GATEWAY_MODELS), sorted(offered))
+check("each entry carries the real model name for the picker",
+      "deepseek-v4.1-flash" in offered and "kimi-k3" in offered, offered)
+check("no two entries share a model id",
+      len(set(offered)) == len(offered), offered)
+check("the role slots are spread across the entries",
+      len({n.split("-", 3)[2] for n in offered.values()}) > 1, offered.values())
+
+print()
+print("[2c] every model round-trips back to itself")
+
+import wb_proxy as P  # noqa: E402
+
+# The id has to name the upstream model, or the gateway cannot tell which one
+# the user picked and every choice lands on the same model.
+for model_id, route in offered.items():
+    payload = {"model": route}
+    P._apply_claude_desktop_route_alias(payload)
+    check("%s resolves back to %s" % (route, model_id),
+          payload["model"] == model_id, payload)
 
 meta = read_json(paths["meta"])
 check("library index lists our profile",
