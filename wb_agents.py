@@ -1929,6 +1929,7 @@ def integrate(accounts_dir, client_id, base_url, api_key, model=None,
         "base_url": built["base_url"],
         "model": built["model"],
         "key_id": key_id,
+        "home": home,
         "files": entries,
     }
     _save_state(accounts_dir, state)

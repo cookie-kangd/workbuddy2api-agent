@@ -10024,7 +10024,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.4",
+        "version": "0.1.5",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16198,7 +16198,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.4"
+    server_version = "wb-proxy/0.1.5"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -18118,10 +18118,7 @@ class Handler(BaseHTTPRequestHandler):
                 if client is None or not isinstance(record, dict):
                     continue
                 applied = (overview.get(client_id) or {}).get("applied") or {}
-                if applied.get("external_change"):
-                    results.append({"client": client_id,
-                                    "skipped": "config changed on disk"})
-                    continue
+                external = bool(applied.get("external_change"))
                 base_url = str(record.get("base_url") or "").strip()
                 if not base_url:
                     continue
@@ -18141,12 +18138,21 @@ class Handler(BaseHTTPRequestHandler):
                     written = wb_agents.integrate(
                         ACCOUNTS_DIR, client_id, base_url, api_key,
                         model=record.get("model"), models=models,
-                        key_id=record.get("key_id"))
+                        key_id=record.get("key_id"),
+                        home=record.get("home"))
                 except Exception as exc:
                     results.append({"client": client_id, "error": str(exc)})
                     continue
+                # An external change is NOT a reason to skip here: the client
+                # may have rewritten its own config after our apply (Codex
+                # normalises its config on exit), and the exit switch must not
+                # silently leave it pointing at the previous side's models.
+                # Skipping is only correct for restore, where overwriting would
+                # destroy a hand edit the user wanted to keep.
                 entry = {"client": client_id,
                          "rewritten": len(written.get("files") or [])}
+                if external:
+                    entry["external_change_absorbed"] = True
                 if restart is not False:
                     entry["restart"] = self._agents_maybe_restart(
                         wb_agents, client_id, restart)
