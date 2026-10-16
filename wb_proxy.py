@@ -365,7 +365,11 @@ def claude_desktop_route_target():
     """The model the claude-<role>-<n> ids resolve to, or None when unset."""
     path = os.path.join(ACCOUNTS_DIR, "integration-state.json")
     try:
-        stamp = os.path.getmtime(path)
+        # mtime alone is not a reliable key: a rewrite inside the same
+        # filesystem timestamp granularity would keep serving the old model.
+        # Fold the size in so a changed record is always noticed.
+        stat = os.stat(path)
+        stamp = (stat.st_mtime_ns, stat.st_size)
     except OSError:
         return None
     if _claude_route_cache["stamp"] != stamp:
@@ -381,6 +385,48 @@ def claude_desktop_route_target():
     return _claude_route_cache["target"]
 
 
+def _claude_desktop_route_target_for_request():
+    """The model a Claude Desktop route id should be sent as.
+
+    The configured model wins, but a configured name the gateway cannot serve
+    (the exit switched, the model was retired, or nothing was ever picked) is
+    worse than the built-in default: Claude Desktop would get a 404 for every
+    turn. Fall back to any live chat model, and only then to the static
+    default, so the picker keeps working across an exit switch.
+    """
+    configured = claude_desktop_route_target()
+    live = _claude_desktop_live_models()
+    if configured and is_chat_model(configured) and (not live or configured in live):
+        return configured
+    try:
+        for mid in live:
+            if is_chat_model(mid):
+                return mid
+    except Exception:
+        pass
+    return CLAUDE_DESKTOP_ROUTE_TARGET
+
+
+def _claude_desktop_live_models():
+    """Model ids the gateway can route right now, from the model cache.
+
+    Reads only what has already been fetched (fetch_models warms
+    ``_models_cache``); an empty cache means "unknown", not "nothing", so the
+    caller keeps the configured model rather than guessing.
+    """
+    ids = []
+    try:
+        for realm in (CURRENT_REALM, "cn" if CURRENT_REALM != "cn" else "intl"):
+            cached = (_models_cache.get(realm) or {}).get("data") or []
+            for mid, _meta in cached:
+                text = str(mid)
+                if text not in ids:
+                    ids.append(text)
+    except Exception:
+        return set()
+    return ids
+
+
 def _apply_claude_desktop_route_alias(payload):
     """Resolve a Claude Desktop role id to the model it was configured for."""
     if not isinstance(payload, dict):
@@ -391,7 +437,7 @@ def _apply_claude_desktop_route_alias(payload):
     lowered = name.strip().lower()
     if not any(lowered.startswith(prefix) for prefix in CLAUDE_DESKTOP_ROLE_ROUTES):
         return
-    target = claude_desktop_route_target() or CLAUDE_DESKTOP_ROUTE_TARGET
+    target = _claude_desktop_route_target_for_request()
     payload["model"] = target
     log("alias: Claude Desktop route %s -> %s" % (name, target))
 

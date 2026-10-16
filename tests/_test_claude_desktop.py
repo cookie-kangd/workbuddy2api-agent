@@ -73,14 +73,10 @@ print("[2] apply writes the profile Claude Desktop accepts")
 result = A.integrate(state, "claude-desktop", "http://127.0.0.1:8788/v1",
                      "sk-cd-test", model="deepseek-v4.1-flash", home=home)
 written = {entry["path"] for entry in result["files"]}
-check("all four files are written", len(written) == 4, result["files"])
-
-normal = read_json(paths["config"])
-threep = read_json(paths["config3p"])
-check("normal config switches to 3p deployment",
-      normal.get("deploymentMode") == "3p", normal)
-check("3p config switches to 3p deployment",
-      threep.get("deploymentMode") == "3p", threep)
+check("the gateway profile and the library index are written",
+      written == {paths["profile"], paths["meta"]}, sorted(written))
+check("no empty 1P directory is created",
+      not os.path.exists(paths["config"]), paths["config"])
 
 profile = read_json(paths["profile"])
 check("inferenceProvider is gateway", profile.get("inferenceProvider") == "gateway", profile)
@@ -107,27 +103,49 @@ check("library index makes it current",
       meta.get("appliedId") == A.CLAUDE_DESKTOP_PROFILE_ID, meta)
 
 print()
+print("[2b] an existing 3P config keeps its own preferences")
+
+# A Store or exe install that has already run writes its own preferences into
+# the 3P config. The apply must add deploymentMode and leave everything else.
+existing_home = tempfile.mkdtemp(prefix="wb-claude-existing-")
+existing_state = tempfile.mkdtemp(prefix="wb-claude-existing-state-")
+existing_paths = A._claude_desktop_paths(existing_home)
+os.makedirs(os.path.dirname(existing_paths["config3p"]), exist_ok=True)
+original_three_p = ('{"preferences": {"locale": "zh-Hans"},'
+                    ' "coworkUserFilesPath": "C:\\\\Users\\\\x\\\\Claude"}\n')
+with open(existing_paths["config3p"], "w", encoding="utf-8", newline="") as fh:
+    fh.write(original_three_p)
+A.integrate(existing_state, "claude-desktop", "http://127.0.0.1:8788/v1",
+            "sk-cd-existing", model="glm-5.3", home=existing_home)
+three_p_now = read_json(existing_paths["config3p"])
+check("deploymentMode is switched to 3p",
+      three_p_now.get("deploymentMode") == "3p", three_p_now)
+check("the app's own preferences survive",
+      three_p_now.get("preferences") == {"locale": "zh-Hans"}, three_p_now)
+check("the app's other config keys survive",
+      three_p_now.get("coworkUserFilesPath") == "C:\\Users\\x\\Claude",
+      three_p_now)
+
+print()
 print("[3] re-apply keeps unrelated keys and never duplicates the index entry")
 
-normal["userSetting"] = 42
-threep["enterpriseConfig"] = {"keep": True}
+profile["userSetting"] = 42
+profile["inferenceGatewayBaseUrl"] = "http://old-gateway.invalid"
 meta["entries"].append({"id": "other-profile", "name": "Someone Else"})
-with open(paths["config"], "w", encoding="utf-8") as fh:
-    json.dump(normal, fh)
-with open(paths["config3p"], "w", encoding="utf-8") as fh:
-    json.dump(threep, fh)
+with open(paths["profile"], "w", encoding="utf-8") as fh:
+    json.dump(profile, fh)
 with open(paths["meta"], "w", encoding="utf-8") as fh:
     json.dump(meta, fh)
 
 A.integrate(state, "claude-desktop", "http://127.0.0.1:8788/v1",
             "sk-cd-test-2", model="glm-5.3", home=home)
-normal2 = read_json(paths["config"])
-threep2 = read_json(paths["config3p"])
+profile2 = read_json(paths["profile"])
 meta2 = read_json(paths["meta"])
-check("an unrelated key in the normal config survives",
-      normal2.get("userSetting") == 42, normal2)
-check("an unrelated key in the 3p config survives",
-      threep2.get("enterpriseConfig") == {"keep": True}, threep2)
+check("an unrelated profile key survives",
+      profile2.get("userSetting") == 42, profile2)
+check("the gateway url is refreshed",
+      profile2.get("inferenceGatewayBaseUrl") == "http://127.0.0.1:8788",
+      profile2)
 check("someone else's library entry survives",
       {"id": "other-profile", "name": "Someone Else"} in meta2.get("entries"), meta2)
 check("our library entry is not duplicated",
@@ -136,6 +154,26 @@ check("our library entry is not duplicated",
 check("the key is refreshed",
       read_json(paths["profile"])["inferenceGatewayApiKey"] == "sk-cd-test-2",
       read_json(paths["profile"]))
+
+print()
+print("[3b] a policy key the user tightened is never reset")
+
+# disableDeploymentModeChooser / coworkEgressAllowedHosts are seeded only when
+# missing, so an operator who turned the chooser back on keeps their choice.
+tightened_home = tempfile.mkdtemp(prefix="wb-claude-tightened-")
+tightened_state = tempfile.mkdtemp(prefix="wb-claude-tightened-state-")
+tightened_paths = A._claude_desktop_paths(tightened_home)
+os.makedirs(os.path.dirname(tightened_paths["profile"]), exist_ok=True)
+with open(tightened_paths["profile"], "w", encoding="utf-8") as fh:
+    json.dump({"disableDeploymentModeChooser": False,
+               "coworkEgressAllowedHosts": ["claude.ai"]}, fh)
+A.integrate(tightened_state, "claude-desktop", "http://127.0.0.1:8788",
+            "sk-cd-tightened", model="glm-5.3", home=tightened_home)
+tightened = read_json(tightened_paths["profile"])
+check("the deployment chooser stays off",
+      tightened.get("disableDeploymentModeChooser") is False, tightened)
+check("the narrowed egress list stays",
+      tightened.get("coworkEgressAllowedHosts") == ["claude.ai"], tightened)
 
 print()
 print("[4] the integration record keeps the key id, never the key")
@@ -161,8 +199,6 @@ A.integrate(fresh_state, "claude-desktop", "http://127.0.0.1:8788",
 check("apply created the profile",
       os.path.isfile(fresh_paths["profile"]), fresh_paths["profile"])
 A.restore(fresh_state, "claude-desktop", home=fresh_home)
-check("config file is gone again", not os.path.exists(fresh_paths["config"]))
-check("3p config file is gone again", not os.path.exists(fresh_paths["config3p"]))
 check("profile file is gone again", not os.path.exists(fresh_paths["profile"]))
 check("library index is gone again", not os.path.exists(fresh_paths["meta"]))
 check("the directories we created are pruned",
@@ -296,11 +332,95 @@ try:
     P._apply_claude_desktop_route_alias(untouched)
     check("an ordinary model id is left alone",
           untouched["model"] == "deepseek-v4.1-flash", untouched)
+
 finally:
     P.ACCOUNTS_DIR = _orig_accounts
     P._claude_route_cache["stamp"] = None
 
 print()
+print("[8b] a configured model the gateway cannot serve falls back")
+
+# The role ids exist only inside Claude Desktop; if the model the operator
+# picked is gone (exit switch, retired model, never picked), every turn would
+# 404. The alias falls back to something the gateway can actually route, but
+# an empty model cache means "unknown", so the configured model is kept.
+import wb_proxy as P  # noqa: E402
+
+fallback_home = tempfile.mkdtemp(prefix="wb-claude-fallback-")
+_orig_accounts = P.ACCOUNTS_DIR
+_orig_cache = P._models_cache
+try:
+    P.ACCOUNTS_DIR = fallback_home
+    P._models_cache = {"intl": {"at": 0.0, "data": None},
+                       "cn": {"at": 0.0, "data": None}}
+    with open(os.path.join(fallback_home, "integration-state.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"claude-desktop": {"model": "gone-model-xyz"}}, fh)
+    P._claude_route_cache["stamp"] = None
+    check("an empty cache keeps the configured model",
+          P._claude_desktop_route_target_for_request() == "gone-model-xyz",
+          P._claude_desktop_route_target_for_request())
+
+    P._models_cache["intl"] = {"at": 9e9, "data": [("deepseek-v4.1-flash", {}),
+                                                   ("glm-5.3", {})]}
+    check("a configured model that is not offered is replaced",
+          P._claude_desktop_route_target_for_request() == "deepseek-v4.1-flash",
+          P._claude_desktop_route_target_for_request())
+
+    with open(os.path.join(fallback_home, "integration-state.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"claude-desktop": {"model": "glm-5.3"}}, fh)
+    P._claude_route_cache["stamp"] = None
+    check("a configured model that is offered is kept",
+          P._claude_desktop_route_target_for_request() == "glm-5.3",
+          P._claude_desktop_route_target_for_request())
+finally:
+    P.ACCOUNTS_DIR = _orig_accounts
+    P._models_cache = _orig_cache
+    P._claude_route_cache["stamp"] = None
+
+print()
+print("[8b] a configured model the gateway cannot serve falls back")
+
+# The role ids exist only inside Claude Desktop; if the model the operator
+# picked is gone (exit switch, retired model, never picked), every turn would
+# 404. The alias falls back to something the gateway can actually route.
+# An empty model cache means "unknown", not "nothing", so the configured model
+# is kept rather than guessed at; once a real list is known a model that is not
+# on it is replaced by one that is.
+fallback_home = tempfile.mkdtemp(prefix="wb-claude-fallback-")
+_orig_accounts = P.ACCOUNTS_DIR
+_orig_cache = P._models_cache
+try:
+    P.ACCOUNTS_DIR = fallback_home
+    P._models_cache = {"intl": {"at": 0.0, "data": None},
+                       "cn": {"at": 0.0, "data": None}}
+    with open(os.path.join(fallback_home, "integration-state.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"claude-desktop": {"model": "gone-model-xyz"}}, fh)
+    P._claude_route_cache["stamp"] = None
+    check("an empty cache keeps the configured model",
+          P._claude_desktop_route_target_for_request() == "gone-model-xyz",
+          P._claude_desktop_route_target_for_request())
+
+    P._models_cache["intl"] = {"at": 9e9, "data": [("deepseek-v4.1-flash", {}),
+                                                   ("glm-5.3", {})]}
+    check("a configured model that is not offered is replaced",
+          P._claude_desktop_route_target_for_request() == "deepseek-v4.1-flash",
+          P._claude_desktop_route_target_for_request())
+
+    with open(os.path.join(fallback_home, "integration-state.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"claude-desktop": {"model": "glm-5.3"}}, fh)
+    P._claude_route_cache["stamp"] = None
+    check("a configured model that is offered is kept",
+          P._claude_desktop_route_target_for_request() == "glm-5.3",
+          P._claude_desktop_route_target_for_request())
+finally:
+    P.ACCOUNTS_DIR = _orig_accounts
+    P._models_cache = _orig_cache
+    P._claude_route_cache["stamp"] = None
+
 print()
 print("[9] Claude clients get the extra model slots and the catalog path")
 # Claude Code also fires a small/fast model and a sub-agent model (background

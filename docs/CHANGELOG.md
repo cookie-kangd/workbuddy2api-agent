@@ -43,8 +43,27 @@
 - **`model_catalog_json` 改绝对路径**：写相对路径时 Codex CLI 会按自己的当前目录
   解析，从非 `~/.codex` 目录启动就看不到第三方模型。CC Switch 也是写成绝对路径。
 - **重启加了总开关**：`WB_AGENTS_NO_RESTART=1`（或 `disable_restarts()`）可彻底
-  禁止杀进程。测试套件默认开启——此前一个没打桩的调用会真的杀掉并重启用户正在
-  使用的 Codex / Claude Desktop。
+ 禁止杀进程。测试套件默认开启——此前一个没打桩的调用会真的杀掉并重启用户正在
+ 使用的 Codex / Claude Desktop。
+- **Claude Desktop 网关 profile 改成「读-合并-写」**：此前整文件覆写，把 Claude
+  自己维护的 `preferences` 等键冲掉；应用运行时会用内存态重写回来，我们的 profile
+  就在这个来回里被丢掉（表现为「配置成功但模型选择器里没有模型」）。现在只替换
+  CC Switch 所称的那几个 floor 键，`disableDeploymentModeChooser` /
+  `coworkEgressAllowedHosts` 仅缺失时写入；`claude_desktop_config.json` 只在已存在
+  时补 `deploymentMode`，不再新建空的 1P 目录。
+- **Claude Desktop 模型路由不再 404**：`claude-<角色>-<序号>` 是 Claude Desktop
+  内部的名字，映射到「你在看板选的模型」。选的模型不存在（切了出口、模型下线、
+  或从没选过）时此前每个回合都 404；现在先按网关当前真实清单校验，取不到第一个
+  可用模型兜底（清单为空时保守保留配置，不瞎猜）。
+- **兜底模型改为确定性选取**：原实现用 set 迭代，兜底模型每次可能不同。
+
+### 兼容
+
+- **Claude Desktop 同时支持微软商店版与 exe 版**：商店版（MSIX）多数情况下没有开启
+  文件系统虚拟化，与 exe 版读同一个 `%LOCALAPPDATA%\Claude-3p`，天然共用一套路径；
+  只有确实被虚拟化（本地目录完全不存在）时才回退到
+  `Packages\AnthropicPBC.Claude_*\LocalCache` 沙盒内的对应目录。检测（probe）同样
+  覆盖两种形态。
 
 ## v0.1.1 — 同步上游 v1.7.6 – v1.7.10
 

@@ -391,6 +391,11 @@ acct5 = tempfile.mkdtemp(prefix="wb-agents-acct5-")
 base_url = "http://127.0.0.1:9000"
 models = [{"id": "m-big", "context_window": 128000, "max_output": 8192},
           {"id": "m-small"}]
+# Claude Desktop only *requires* the gateway profile and the library index; its
+# two claude_desktop_config.json files are pre-existing app state that is left
+# alone when absent (creating an empty one is what made a Store build ignore
+# the setup), so they are not part of this contract.
+OPTIONAL_PATH_KEYS = {"claude-desktop": ("config", "config3p")}
 all_ok = True
 notes = {}
 for cid in sorted(A.CLIENTS):
@@ -398,7 +403,9 @@ for cid in sorted(A.CLIENTS):
         paths = A.CLIENTS[cid]["files"](home5)
         res = A.integrate(acct5, cid, base_url, "key-" + cid,
                           model="m-big", models=models, home=home5)
-        missing = [p for p in paths.values() if not os.path.exists(p)]
+        required = {k: v for k, v in paths.items()
+                    if k not in OPTIONAL_PATH_KEYS.get(cid, ())}
+        missing = [p for p in required.values() if not os.path.exists(p)]
         all_ok = all_ok and not missing and res["client"] == cid
         notes[cid] = "missing=%s" % missing if missing else "ok"
         A.restore(acct5, cid, home=home5)
@@ -409,7 +416,7 @@ for cid in sorted(A.CLIENTS):
     except Exception as exc:  # noqa: BLE001 - report every client
         all_ok = False
         notes[cid] = "raised: %r" % exc
-check("all six clients applied and restored cleanly", all_ok, notes)
+check("every client applied and restored cleanly", all_ok, notes)
 check("state is empty after restoring everything",
       A._load_state(acct5) == {}, A._load_state(acct5))
 

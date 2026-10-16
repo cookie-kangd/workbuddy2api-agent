@@ -79,7 +79,7 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 | 客户端 | 写入位置 | 协议 |
 | --- | --- | --- |
 | Claude Code | `~/.claude/settings.json` | 原生 Anthropic Messages（自动剥 `/v1` 后缀） |
-| Claude Desktop | `%LOCALAPPDATA%\Claude[-3p]\claude_desktop_config.json`、`...\Claude-3p\configLibrary\` | 原生 Anthropic Messages（3P 网关 profile，模型名只能是 `claude-<角色>-<序号>`） |
+| Claude Desktop | `%LOCALAPPDATA%\Claude-3p\configLibrary\`（微软商店版与 exe 版同一路径） | 原生 Anthropic Messages（3P 网关 profile，模型名只能是 `claude-<角色>-<序号>`） |
 | Codex CLI / App | `~/.codex/config.toml`、`~/.codex/auth.json`、`~/.codex/wb-proxy-model-catalog.json` | Responses API（含桌面端模型目录，`model_catalog_json` 指向该文件） |
 | OpenCode | `~/.config/opencode/opencode.json` 等 | OpenAI 兼容 |
 
@@ -93,6 +93,12 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 **配置完成后自动重启**：Codex 桌面版与 Claude Desktop 都只在启动时读一次配置，改完文件不重启就等于没改。看板点「一键配置」后，网关会**只重启正在运行的那一个**客户端（按可执行文件路径精确匹配，不会误杀同名的其他程序），没在运行的则提示"下次打开生效"。切换「国际版 / 国内版」出口时同理：会自动重写各客户端里嵌的模型清单，并重启正在运行的客户端。
 
 > 需要完全禁止这个行为（例如自动化环境）可设 `WB_AGENTS_NO_RESTART=1`：重启会被拒绝并记录原因，配置照常写入。
+
+> **Claude Desktop 商店版 / exe 版都能用**：微软商店（MSIX）安装的 Claude 通常没有开启
+> 文件系统虚拟化，和 exe 版读同一个 `%LOCALAPPDATA%\Claude-3p`，两种安装方式共用同一
+> 套路径；只有在系统确实把它沙盒化时才改用包容器内的目录。配置完成后 Claude 需要重启一
+> 次（或看板「一键配置」的自动重启）才会在模型选择器里出现 `claude-sonnet-5` 等 4 个
+> 角色入口，它们都映射到你在看板选的那个模型。
 
 也可以完全不装看板会话，直接用脚本接入（Key 在「设置」页生成）：
 

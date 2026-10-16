@@ -1383,12 +1383,57 @@ def _claude_desktop_dirs(home):
         # and a caller that points `home` somewhere else - a test, or the
         # standalone configurator - gets a hermetic answer.
         base = os.path.join(home, "AppData", "Local")
-        return os.path.join(base, "Claude"), os.path.join(base, "Claude-3p")
+        normal = os.path.join(base, "Claude")
+        threep = os.path.join(base, "Claude-3p")
+        # Both installs read the same local folders. The Microsoft Store (MSIX)
+        # build normally redirects its data into the package sandbox, but only
+        # when filesystem virtualization is on; a Claude that has already run
+        # with virtualization off (the common case on current builds - its own
+        # log says "Filesystem not virtualized") keeps its config right here in
+        # %LOCALAPPDATA%\Claude-3p. So: trust a local folder that already
+        # exists, and only look inside the MSIX container when neither does.
+        if not os.path.isdir(normal) and not os.path.isdir(threep):
+            packaged = _msix_claude_dirs(base)
+            if packaged:
+                return packaged
+        return normal, threep
     if sys.platform == "darwin":
         base = os.path.join(home, "Library", "Application Support")
         return os.path.join(base, "Claude"), os.path.join(base, "Claude-3p")
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
     return os.path.join(base, "Claude"), os.path.join(base, "Claude-3p")
+
+
+def _msix_claude_dirs(local_app_data):
+    """Claude's data dirs inside a Microsoft Store package sandbox, or None.
+
+    Only reached when no local Claude/Claude-3p folder exists, i.e. a Store
+    build whose filesystem *is* virtualized. Such an install keeps its data in
+    Packages\\<PackageFamily>\\LocalCache\\{Roaming,Local}\\Claude[-3p]; the
+    family name carries a publisher hash, so match on the package name and
+    prefer whichever side the app already created.
+    """
+    packages = os.path.join(local_app_data, "Packages")
+    try:
+        entries = os.listdir(packages)
+    except OSError:
+        return None
+    family = None
+    for name in entries:
+        if name.lower().startswith("anthropicpbc.claude"):
+            family = name
+            break
+    if not family:
+        return None
+    root = os.path.join(packages, family, "LocalCache")
+    roaming = os.path.join(root, "Roaming", "Claude")
+    local = os.path.join(root, "Local", "Claude")
+    # The 1P config normally sits under Roaming, the 3P config under Local;
+    # fall back to whichever side the app actually created so a re-detection
+    # stays stable. The caller creates parents before writing.
+    normal = roaming if os.path.isdir(roaming) else local
+    threep = os.path.join(root, "Local", "Claude-3p")
+    return normal, threep
 
 
 def _claude_desktop_paths(home):
@@ -1411,15 +1456,71 @@ def _claude_desktop_deployment_mode(path):
 def _claude_desktop_profile(ctx):
     """The gateway profile Claude Desktop reads out of configLibrary."""
     root = re.sub(r"/v1/?$", "", str(ctx.get("base_url") or ""))
-    return _dump_json({
-        "coworkEgressAllowedHosts": ["*"],
-        "disableDeploymentModeChooser": True,
+    # Merge into whatever profile is already on disk instead of replacing it
+    # wholesale: CC Switch writes the same profile as a patch whose clear scope
+    # is exactly the "floor" keys below, and seeds the two policy keys only
+    # when absent. A blanket overwrite drops keys Claude Desktop itself owns
+    # (and, on a running app, gets rolled back the next time it saves - which
+    # is how the gateway profile disappears again).
+    return _claude_desktop_profile_for(ctx.get("profile_current"))
+
+
+#: The profile keys Claude Desktop reads for a custom gateway. Everything else
+#: in the file is left as the user / the app set it. Mirrors CC Switch's
+#: DESKTOP_PROFILE_FLOOR.
+CLAUDE_DESKTOP_PROFILE_FLOOR = (
+    "inferenceProvider",
+    "inferenceGatewayBaseUrl",
+    "inferenceGatewayApiKey",
+    "inferenceGatewayAuthScheme",
+    "inferenceModels",
+    "modelDiscoveryEnabled",
+)
+
+#: Written only when missing, so the user can tighten them by hand.
+CLAUDE_DESKTOP_PROFILE_SEED = ("disableDeploymentModeChooser",
+                               "coworkEgressAllowedHosts")
+
+
+def _claude_desktop_profile_for(ctx, current=None):
+    """Build the profile object for `ctx`, merging over `current` (a dict)."""
+    root = re.sub(r"/v1/?$", "", str(ctx.get("base_url") or ""))
+    existing = current if isinstance(current, dict) else {}
+    profile = dict(existing)
+    for key in CLAUDE_DESKTOP_PROFILE_FLOOR:
+        profile.pop(key, None)
+    profile.update({
+        "inferenceProvider": "gateway",
+        "inferenceGatewayBaseUrl": root,
         "inferenceGatewayApiKey": ctx.get("api_key") or "",
         "inferenceGatewayAuthScheme": "bearer",
-        "inferenceGatewayBaseUrl": root,
-        "inferenceProvider": "gateway",
         "inferenceModels": list(CLAUDE_DESKTOP_ROUTES),
     })
+    for key in CLAUDE_DESKTOP_PROFILE_SEED:
+        profile.setdefault(key, True if key == "disableDeploymentModeChooser"
+                           else ["*"])
+    return profile
+
+
+def _claude_desktop_installed(home):
+    """True when Claude Desktop is present in either the exe or Store form.
+
+    The exe build and a non-virtualized Store build both live in
+    %LOCALAPPDATA%\\Claude[-3p]; a fully virtualized Store build lives in the
+    package sandbox. Detect any of them, plus a `claude` / `claude-desktop`
+    binary on PATH.
+    """
+    normal, threep = _claude_desktop_dirs(home)
+    if os.path.isdir(normal) or os.path.isdir(threep):
+        return True
+    if os.path.isfile(os.path.join(normal, CLAUDE_DESKTOP_CONFIG_FILE)):
+        return True
+    if os.path.isfile(os.path.join(threep, CLAUDE_DESKTOP_CONFIG_FILE)):
+        return True
+    base = os.path.join(home, "AppData", "Local")
+    if _msix_claude_dirs(base) is not None:
+        return True
+    return bool(shutil.which("claude") or shutil.which("claude-desktop"))
 
 
 def _claude_desktop_meta(path):
@@ -1441,12 +1542,29 @@ def _claude_desktop_meta(path):
 
 
 def _apply_claude_desktop(paths, ctx):
-    return {
-        paths["config"]: _claude_desktop_deployment_mode(paths["config"]),
-        paths["config3p"]: _claude_desktop_deployment_mode(paths["config3p"]),
-        paths["profile"]: _claude_desktop_profile(ctx),
-        paths["meta"]: _claude_desktop_meta(paths["meta"]),
-    }
+    """Write the 3P gateway profile the way Claude Desktop expects to read it.
+
+    Files we create ourselves (the profile and the library index) are merged
+    over their current bytes; the two `claude_desktop_config.json` files are
+    only touched when they already exist, because creating a bare 1P config in
+    a fresh `Claude\\` folder is how a Store install ends up with an empty
+    directory it never looks at.
+    """
+    out = {}
+    profile_path = paths["profile"]
+    current = None
+    if os.path.isfile(profile_path):
+        try:
+            current = json.loads(_read_text(profile_path))
+        except Exception:
+            current = None
+    out[profile_path] = _dump_json(_claude_desktop_profile_for(ctx, current))
+    out[paths["meta"]] = _claude_desktop_meta(paths["meta"])
+    for key in ("config3p", "config"):
+        path = paths[key]
+        if os.path.isfile(path):
+            out[path] = _claude_desktop_deployment_mode(path)
+    return out
 
 
 CLIENTS = {
@@ -1472,11 +1590,7 @@ CLIENTS = {
                 "（deploymentMode=3p）。",
         "protocol": "anthropic",
         "files": _claude_desktop_paths,
-        "probe": lambda home: (
-            os.path.isdir(_claude_desktop_dirs(home)[0])
-            or os.path.isdir(_claude_desktop_dirs(home)[1])
-            or bool(shutil.which("claude-desktop"))
-        ),
+        "probe": _claude_desktop_installed,
         "apply": _apply_claude_desktop,
         "processes": _is_claude_desktop_process,
         "relaunch": _launch_claude_desktop,
