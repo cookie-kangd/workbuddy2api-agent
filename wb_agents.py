@@ -768,24 +768,80 @@ def _windows_package_launch_id(exe):
 
 
 def _terminate(procs, pids):
-    """Best-effort kill of `pids`; returns the ones that are gone afterwards."""
-    for pid in sorted(pids):
-        try:
-            if os.name == "nt":
-                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
-                               capture_output=True, timeout=30)
-            else:
+    """Close client roots politely first, then force any surviving tree.
+
+    A desktop app may have unsaved state while it handles shutdown. Sending a
+    normal window-close first gives it a chance to flush that state; only a
+    stuck process is force-killed. Returns PIDs gone afterwards.
+    """
+    pids = {int(pid) for pid in pids}
+    by_pid = {proc["pid"]: proc for proc in procs if proc.get("pid") in pids}
+    roots = sorted(pid for pid, proc in by_pid.items()
+                   if proc.get("ppid") not in pids)
+
+    if os.name == "nt":
+        if roots:
+            # Use the GUI process CloseMainWindow API rather than `taskkill`
+            # first, so Codex / Claude Desktop can finish saving its current
+            # conversation. This is bounded: PowerShell only requests the close.
+            root_csv = ",".join(str(pid) for pid in roots)
+            script = (
+                "$ids=@(%s); foreach($id in $ids){"
+                "try{$p=Get-Process -Id $id -ErrorAction Stop;"
+                "if($p.MainWindowHandle -ne 0){[void]$p.CloseMainWindow()}}catch{}}"
+            ) % root_csv
+            try:
+                _run_powershell(script, timeout=10)
+            except Exception:
+                pass
+
+        deadline = time.time() + 8.0
+        alive = set(pids)
+        while time.time() < deadline and alive:
+            try:
+                observed = {proc["pid"] for proc in process_snapshot()}
+                alive = pids & observed
+            except Exception:
+                break
+            if alive:
+                time.sleep(0.25)
+
+        # Force only surviving roots; /T takes care of their descendants.
+        if alive:
+            alive_roots = [pid for pid in sorted(alive)
+                           if by_pid.get(pid, {}).get("ppid") not in alive]
+            for pid in alive_roots or sorted(alive):
+                try:
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                   capture_output=True, timeout=30)
+                except Exception:
+                    pass
+    else:
+        # POSIX clients should receive TERM first and only then KILL after the
+        # same short grace period.
+        for pid in roots or sorted(pids):
+            try:
                 os.kill(pid, 15)
+            except Exception:
+                pass
+        time.sleep(min(8.0, max(0.0, 0.5)))
+        try:
+            alive = pids & {proc["pid"] for proc in process_snapshot()}
         except Exception:
-            pass
-    if os.name != "nt":
-        time.sleep(0.5)
-    alive = set()
+            alive = set()
+        alive_roots = [pid for pid in sorted(alive)
+                       if by_pid.get(pid, {}).get("ppid") not in alive]
+        for pid in alive_roots:
+            try:
+                os.kill(pid, 9)
+            except Exception:
+                pass
+
     try:
-        alive = {proc["pid"] for proc in process_snapshot()}
-    except AgentConfigError:
-        pass
-    return [pid for pid in pids if pid not in alive]
+        alive = pids & {proc["pid"] for proc in process_snapshot()}
+    except Exception:
+        alive = pids
+    return sorted(pids - alive)
 
 
 def restart_client(client_id, home=None, wait=2.0):

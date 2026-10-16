@@ -7,6 +7,9 @@ turns the bridge on and reports it as a warning, so the operator can still
 switch it back off.
 
     python tests/_test_agents_anthropic_bridge.py
+
+Requires `WB_AGENTS_NO_RESTART=1` (set before import) because this
+suite invokes the real agents handler and must never kill a live app.
 """
 import json
 import os
@@ -40,6 +43,7 @@ def check(label, cond, extra=""):
 
 
 home = tempfile.mkdtemp(prefix="wb-bridge-home-")
+test_home = home
 state = tempfile.mkdtemp(prefix="wb-bridge-state-")
 
 
@@ -53,7 +57,6 @@ class _Handler(object):
 
     def __init__(self, accounts_dir, home_dir):
         self.accounts_dir = accounts_dir
-        self.home_dir = home_dir
         self.response = None
 
     def _json(self, code, obj):
@@ -69,10 +72,12 @@ class _Handler(object):
 _orig_integrate = A.integrate
 A.integrate = lambda acct, cid, base_url, key, model=None, models=None, home=None, \
     key_id=None: _orig_integrate(state, cid, base_url, key, model=model,
-                                 models=models, home=home, key_id=key_id)
+                                 models=models, home=home or test_home, key_id=key_id)
 
 _orig_accounts = P.ACCOUNTS_DIR
+_orig_resolve_home = A._resolve_home
 P.ACCOUNTS_DIR = state
+A._resolve_home = lambda unused=None: test_home
 
 try:
     print("[1] applying a Claude client turns the Messages bridge on")
@@ -137,12 +142,11 @@ try:
                  "CLAUDE_CODE_SUBAGENT_MODEL"):
         check("%s is set" % slot, env.get(slot) == "deepseek-v4.1-flash",
               env.get(slot))
-    check("the real user config was never touched",
-          not os.path.exists(os.path.join(os.path.expanduser("~"), ".claude",
-                                          "settings.json"))
-          or True, None)
+    check("the planned file is inside the temporary home",
+          settings_path.startswith(home), settings_path)
 finally:
     P.ACCOUNTS_DIR = _orig_accounts
+    A._resolve_home = _orig_resolve_home
     A.integrate = _orig_integrate
 
 print()
