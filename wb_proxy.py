@@ -18001,6 +18001,11 @@ class Handler(BaseHTTPRequestHandler):
             "keys": keys,
             "global_key_set": bool(API_KEY),
             "auth_required": auth_required(),
+            # Claude Code / Claude Desktop speak Anthropic Messages, and the
+            # gateway refuses that route unless the bridge is on; the panel
+            # warns on those cards instead of letting the user find out with a
+            # 400 halfway through a session.
+            "anthropic_messages_enabled": _anthropic_messages_enabled(),
             "gateway": {"base_url": self._agents_base_url_hint()},
         })
 
@@ -18194,6 +18199,26 @@ class Handler(BaseHTTPRequestHandler):
             api_key = "wb-local"
             warnings.append("gateway has no key configured; wrote placeholder "
                             "'wb-local' (auth is off, so any value works)")
+        # An Anthropic-protocol client cannot work while the Messages bridge is
+        # off: the gateway answers 400 before the request reaches a model, so
+        # one-click setup would hand back a config that is guaranteed to fail.
+        # The bridge is off by default because the translation drops
+        # cache_control (issue #367), so turn it on *and say so* - the operator
+        # can switch it back off on the Settings page.
+        if (wb_agents.CLIENTS.get(client_id) or {}).get("protocol") == "anthropic":
+            try:
+                if not _anthropic_messages_enabled():
+                    wb_settings.set_enable_anthropic_messages(ACCOUNTS_DIR, True)
+                    warnings.append(
+                        "已自动开启「Anthropic Messages 接口」：Claude 客户端靠它"
+                        "接入，默认关闭时请求会被网关 400 拒绝。长上下文会话可能更"
+                        "费积分，可在「设置」页关闭。")
+                    log("agents apply: enabled the Anthropic Messages bridge "
+                        "for %s" % client_id, tag="agents")
+            except Exception as exc:
+                warnings.append(
+                    "无法自动开启「Anthropic Messages 接口」：%s；请在「设置」页"
+                    "手动打开，否则该客户端会收到 400" % exc)
         try:
             result = wb_agents.integrate(
                 ACCOUNTS_DIR, client_id, base_url, api_key,

@@ -32,6 +32,19 @@
 - **413 提示不再指错方向**：网关自己的上限与上游的「请求体过大」共用同一条提示，
   上游拒绝时会误导运维去调 `WB_MAX_PAYLOAD_BYTES`。现在按网关自己的报文格式区分，
   上游的 413 改提示「精简对话/去掉大附件」。
+- **一键配置 Claude 类客户端不再产出「必定 400」的配置**：Anthropic Messages 通道
+  默认关闭（#367），而 Claude Code / Claude Desktop 只能走这条通道，此前一键配置
+  写完就算成功，实际第一次请求就被网关 400 拒掉。现在给这类客户端配置时会自动打开
+  该通道，并在返回里写明「可在设置页关闭」。
+- **补齐 Claude Code 的模型槽位**：除 `ANTHROPIC_MODEL` 外，还写
+  `ANTHROPIC_SMALL_FAST_MODEL`、`ANTHROPIC_DEFAULT_*`、`CLAUDE_CODE_SUBAGENT_MODEL`。
+  不写这些时，摘要 / 压缩 / 子代理那几类回合会落到客户端内置默认模型名上，而这个
+  网关并不提供那个名字。CC Switch 同样写全部槽位。
+- **`model_catalog_json` 改绝对路径**：写相对路径时 Codex CLI 会按自己的当前目录
+  解析，从非 `~/.codex` 目录启动就看不到第三方模型。CC Switch 也是写成绝对路径。
+- **重启加了总开关**：`WB_AGENTS_NO_RESTART=1`（或 `disable_restarts()`）可彻底
+  禁止杀进程。测试套件默认开启——此前一个没打桩的调用会真的杀掉并重启用户正在
+  使用的 Codex / Claude Desktop。
 
 ## v0.1.1 — 同步上游 v1.7.6 – v1.7.10
 

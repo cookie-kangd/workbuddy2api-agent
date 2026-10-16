@@ -15,12 +15,19 @@ Three things this pins, none of which the generic agents suite covers:
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+
+# Before wb_agents is imported: restarting a client kills processes, and this
+# suite's restart test replaces the process table with a fake. Without the kill
+# switch, an unstubbed call could reach the operator's real Codex / Claude
+# Desktop instead of the fake table.
+os.environ["WB_AGENTS_NO_RESTART"] = "1"
 
 import wb_agents as A  # noqa: E402
 
@@ -217,6 +224,10 @@ terminated = []
 launched = []
 try:
     A.process_snapshot = lambda: SNAP
+    # Everything this block can reach is a fake: the table is SNAP, the kill is
+    # a recorder and the launcher is a stub. Safe to lift the kill switch here,
+    # and it is the only way to exercise the real restart path.
+    A.enable_restarts()
     A._terminate = lambda procs, pids: (terminated.append(sorted(pids)),
                                         sorted(pids))[1]
     A.CLIENTS["codex"]["relaunch"] = lambda matches: (
@@ -225,6 +236,7 @@ try:
 finally:
     A.process_snapshot, A._terminate = _orig_snapshot, _orig_terminate
     A.CLIENTS["codex"]["relaunch"] = _orig_launch
+    A.disable_restarts()
 
 check("the whole app tree is stopped", terminated == [[20, 21, 22]], terminated)
 check("the app is relaunched once", launched == [[20, 21, 22]], launched)
@@ -235,11 +247,27 @@ check("the report says it worked",
 _orig_snapshot = A.process_snapshot
 try:
     A.process_snapshot = lambda: [SNAP[0]]
+    A.enable_restarts()
     idle = A.restart_client("codex", wait=0)
 finally:
     A.process_snapshot = _orig_snapshot
+    A.disable_restarts()
 check("an idle client reports nothing to restart",
       idle.get("running") is False and idle.get("started") is False, idle)
+
+print()
+print("[7b] the kill switch protects the operator's own processes")
+
+A.disable_restarts()
+try:
+    blocked = A.restart_client("codex", wait=0)
+finally:
+    A.enable_restarts()
+    A.disable_restarts()
+check("a restart is refused while restarts are disabled",
+      blocked.get("blocked") is True and blocked.get("stopped") == [], blocked)
+check("the refusal says why",
+      "WB_AGENTS_NO_RESTART" in str(blocked.get("reason")), blocked)
 
 print()
 print("[8] claude-<role>-<n> ids resolve to the configured model")
@@ -273,5 +301,34 @@ finally:
     P._claude_route_cache["stamp"] = None
 
 print()
+print()
+print("[9] Claude clients get the extra model slots and the catalog path")
+# Claude Code also fires a small/fast model and a sub-agent model (background
+# summaries, sub-agents). Leaving them unset sends those turns to whatever
+# built-in default the client has - a model name this gateway does not serve.
+plan_cc = A.plan("claude-code", "http://127.0.0.1:8788/v1", "sk-cc",
+                 model="deepseek-v4.1-flash", home=home)
+payload_cc = json.loads(plan_cc["files"][0]["content"])
+env_cc = payload_cc.get("env") or {}
+for slot in ("ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+             "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+             "ANTHROPIC_DEFAULT_HAIKU_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
+    check("%s points at the chosen model" % slot,
+          env_cc.get(slot) == "deepseek-v4.1-flash", env_cc.get(slot))
+check("the Anthropic base URL keeps no /v1 suffix",
+      env_cc.get("ANTHROPIC_BASE_URL") == "http://127.0.0.1:8788", env_cc)
+# A relative model_catalog_json is resolved against the Codex CLI's own working
+# directory, so from anywhere but $CODEX_HOME it sees no third-party models.
+plan_cx = A.plan("codex", "http://127.0.0.1:8788/v1", "sk-cx",
+                 model="deepseek-v4.1-flash", home=home)
+toml_text = plan_cx["files"][0]["content"]
+match = re.search(r'^model_catalog_json = "(.+)"$', toml_text,
+                  re.MULTILINE)
+check("model_catalog_json is written", match is not None, toml_text[:200])
+if match:
+    value = match.group(1)
+    check("model_catalog_json is an absolute path",
+          os.path.isabs(value), value)
+
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

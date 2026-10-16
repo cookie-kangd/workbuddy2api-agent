@@ -600,6 +600,25 @@ def _prune_backups(directory, keep=BACKUP_KEEP):
 
 PROCESS_QUERY_TIMEOUT = 60
 
+#: Kill switch for the irreversible part. The gateway process is the one that
+#: should ever restart a client; every test suite sets this before importing
+#: the module so an unstubbed call can only ever report "blocked".
+_RESTART_DISABLED = os.environ.get(
+    "WB_AGENTS_NO_RESTART", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def disable_restarts():
+    """Refuse every future restart for this process (test suites only)."""
+    global _RESTART_DISABLED
+    _RESTART_DISABLED = True
+
+
+def enable_restarts():
+    """Undo `disable_restarts` - only a suite that has replaced the process
+    table and the launcher with fakes should call this."""
+    global _RESTART_DISABLED
+    _RESTART_DISABLED = False
+
 # PowerShell is asked to emit the process table as JSON; -EncodedCommand keeps
 # the quoting out of the picture entirely. Get-CimInstance is present on every
 # supported Windows (unlike wmic, which Microsoft is retiring).
@@ -780,6 +799,14 @@ def restart_client(client_id, home=None, wait=2.0):
     if client.get("processes") is None or launcher is None:
         return {"supported": False, "reason": "%s cannot be restarted by the "
                 "gateway" % client["label"], "stopped": [], "started": False}
+    # Killing processes is the one irreversible thing this module can do, so a
+    # test run must never reach it by accident: the suites drive the real
+    # handler, and one that forgot to stub this out would kill the operator's
+    # Codex or Claude Desktop - and then rewrite its config.
+    if _RESTART_DISABLED:
+        return {"supported": True, "running": None, "stopped": [],
+                "started": False, "blocked": True,
+                "reason": "restarts are disabled by WB_AGENTS_NO_RESTART"}
     try:
         procs = process_snapshot()
     except Exception as exc:
@@ -855,10 +882,17 @@ def _apply_claude_code(paths, ctx):
     env["ANTHROPIC_BASE_URL"] = re.sub(r"/v1/?$", "", ctx["base_url"])
     env["ANTHROPIC_AUTH_TOKEN"] = ctx["api_key"]
     if ctx.get("model"):
+        # Every slot Claude Code picks up. ANTHROPIC_MODEL is the main one, but
+        # the app also runs a small/fast model and a sub-agent model (background
+        # summaries, /compact, sub-agents); leave them unset and those turns go
+        # to whatever the built-in default is - which for a third-party gateway
+        # is a model name it does not serve. CC Switch sets all of these too.
         for name in ("ANTHROPIC_MODEL",
+                     "ANTHROPIC_SMALL_FAST_MODEL",
                      "ANTHROPIC_DEFAULT_SONNET_MODEL",
                      "ANTHROPIC_DEFAULT_OPUS_MODEL",
-                     "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
+                     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                     "CLAUDE_CODE_SUBAGENT_MODEL"):
             env[name] = ctx["model"]
     data["env"] = env
     return {path: _dump_json(data)}
@@ -994,7 +1028,11 @@ def _apply_codex(paths, ctx):
         text = toml_upsert_top_key(text, "model", ctx["model"])
     # The desktop app needs a catalog to surface the gateway's models, and we
     # keep response storage off so third-party traffic is not written upstream.
-    text = toml_upsert_top_key(text, "model_catalog_json", CODEX_CATALOG_FILE)
+    # The path is written absolute on purpose: the Codex CLI resolves a
+    # relative one against its own working directory, so `codex` started from
+    # anywhere but the home directory would silently see no third-party models.
+    # CC Switch canonicalises this key the same way.
+    text = toml_upsert_top_key(text, "model_catalog_json", paths["catalog"])
     text = toml_upsert_top_key(text, "disable_response_storage", True)
     # The desktop app reads the API key inline from experimental_bearer_token.
     # Do NOT also set env_key: the app then treats env_key as the chosen auth

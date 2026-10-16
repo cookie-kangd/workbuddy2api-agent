@@ -11476,6 +11476,16 @@ function renderAgentCards(){
     }
     const applyLabel = applied ? '重新应用' : '一键配置';
     const notDetected = !(c.installed || c.detected);
+    // Claude clients cannot reach a model while the Anthropic Messages bridge
+    // is off: the gateway answers 400 before forwarding. Say it on the card
+    // rather than let the user discover it mid-session.
+    const needsBridge = c.protocol === 'anthropic'
+      && AGENTS_DATA && AGENTS_DATA.anthropic_messages_enabled === false;
+    if(needsBridge){
+      warnHtml += '<div class="badge warn" style="margin-top:8px" title="'
+        + 'Anthropic 客户端需要「设置 → 启用 Anthropic Messages 接口」；一键配置时会自动打开">'
+        + '需要开启 Anthropic Messages 通道</div>';
+    }
     const btns = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
       + '<button class="mini" onclick="applyAgent(&quot;' + idAttr + '&quot;, this)"' + (notDetected ? ' disabled title="未检测到该客户端"' : '') + '>' + applyLabel + '</button>'
       + (applied ? '<button class="danger mini" onclick="restoreAgent(&quot;' + idAttr + '&quot;, this)">还原原始配置</button>' : '')
