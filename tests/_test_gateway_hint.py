@@ -49,6 +49,25 @@ class HintClassificationTests(unittest.TestCase):
         self.assertTrue(hint)
         self.assertNotIn(hint, message)
 
+    def test_our_own_payload_cap_is_named_as_ours(self):
+        """A body we refused must point at the knob that fixes it."""
+        message = "payload too large (%d bytes > %d limit)" % (
+            16 * 1024 * 1024 + 900_000, proxy.MAX_PAYLOAD_BYTES)
+        hint = proxy.gateway_hint(413, message)
+        self.assertIn("WB_MAX_PAYLOAD_BYTES", hint)
+        self.assertIn("%dMB" % (proxy.MAX_PAYLOAD_BYTES // (1024 * 1024)), hint)
+
+    def test_an_upstream_payload_413_does_not_blame_our_limit(self):
+        """Same status, same phrase, different culprit: do not misdirect.
+
+        The provider can reject a body as too large with wording close to the
+        gateway's own; telling the operator to raise WB_MAX_PAYLOAD_BYTES then
+        sends them to a knob that changes nothing.
+        """
+        hint = proxy.gateway_hint(413, "payload too large")
+        self.assertNotIn("WB_MAX_PAYLOAD_BYTES", hint)
+        self.assertIn("provider", hint)
+
 
 class _Stub(object):
     _error = proxy.Handler._error

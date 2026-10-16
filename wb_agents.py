@@ -1,9 +1,13 @@
 """One-click agent integration for local AI clients.
 
-Detects installed AI clients (Claude Code, Codex, OpenCode, DSH, Crush, ZCode),
-rewrites their configuration to point at this gateway, keeps a byte-exact
-backup of every file it touches, and can restore the original state with one
-call. Inspired by EasyCLIProxyAPI's agents mechanism.
+Detects installed AI clients (Claude Code, Claude Desktop, Codex, OpenCode,
+DSH, Crush, ZCode), rewrites their configuration to point at this gateway,
+keeps a byte-exact backup of every file it touches, and can restore the
+original state with one call. Inspired by EasyCLIProxyAPI's agents mechanism.
+
+It can also restart the clients it configured (Codex, Claude Desktop): those
+read their config once at startup, so a rewrite alone does not take effect
+until the app is reopened. See ``restart_client``.
 
 The same module is runnable as a standalone configurator, for clients on a
 machine that does not run the gateway (the panel's one-click setup only works
@@ -22,12 +26,14 @@ lines it does not own, so hand-written comments and ordering survive.
 """
 
 import argparse
+import base64
 import getpass
 import hashlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -577,6 +583,290 @@ def _prune_backups(directory, keep=BACKUP_KEEP):
 # Client registry
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Restarting a client whose config we just rewrote
+# ---------------------------------------------------------------------------
+# Codex (desktop app) and Claude Desktop read their configuration once, when
+# they start. After one-click setup rewrites it, a running instance keeps the
+# old file in memory until the user quits and reopens the app by hand - which
+# is exactly the step people forget, and the reason "I configured it and
+# nothing changed". These helpers find the client's own processes so the panel
+# can offer to restart it for them.
+#
+# Only processes we can positively identify as *this* client are touched. The
+# match is by executable path, not by a bare image name: the Codex desktop app
+# ships as ChatGPT.exe inside the OpenAI.Codex_<version> package, and there is
+# an unrelated ChatGPT desktop app with the same image name.
+
+PROCESS_QUERY_TIMEOUT = 60
+
+#: Kill switch for the irreversible part. The gateway process is the one that
+#: should ever restart a client; every test suite sets this before importing
+#: the module so an unstubbed call can only ever report "blocked".
+_RESTART_DISABLED = os.environ.get(
+    "WB_AGENTS_NO_RESTART", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def disable_restarts():
+    """Refuse every future restart for this process (test suites only)."""
+    global _RESTART_DISABLED
+    _RESTART_DISABLED = True
+
+
+def enable_restarts():
+    """Undo `disable_restarts` - only a suite that has replaced the process
+    table and the launcher with fakes should call this."""
+    global _RESTART_DISABLED
+    _RESTART_DISABLED = False
+
+# PowerShell is asked to emit the process table as JSON; -EncodedCommand keeps
+# the quoting out of the picture entirely. Get-CimInstance is present on every
+# supported Windows (unlike wmic, which Microsoft is retiring).
+_PS_PROCESS_SNAPSHOT = (
+    "$ErrorActionPreference='Stop';"
+    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
+    "$p=Get-CimInstance Win32_Process|"
+    "Select-Object ProcessId,ParentProcessId,Name,ExecutablePath;"
+    "ConvertTo-Json -InputObject @($p) -Compress -Depth 3"
+)
+
+
+def _run_powershell(script, timeout=PROCESS_QUERY_TIMEOUT):
+    """Run a PowerShell snippet, returning stdout as text."""
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    proc = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+        capture_output=True, timeout=timeout)
+    if proc.returncode != 0:
+        raise AgentConfigError(
+            "powershell failed: %s"
+            % proc.stderr.decode("utf-8", "replace").strip()[:200])
+    return proc.stdout.decode("utf-8", "replace")
+
+
+def process_snapshot():
+    """Every process on this machine as {pid, ppid, name, exe} records.
+
+    Raises AgentConfigError when the host cannot answer; callers treat that as
+    "unknown", never as "nothing is running".
+    """
+    if os.name == "nt":
+        raw = _run_powershell(_PS_PROCESS_SNAPSHOT).strip()
+        if not raw:
+            return []
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            data = [data]
+        out = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            out.append({
+                "pid": int(item.get("ProcessId") or 0),
+                "ppid": int(item.get("ParentProcessId") or 0),
+                "name": str(item.get("Name") or ""),
+                "exe": str(item.get("ExecutablePath") or ""),
+            })
+        return out
+    # POSIX: ps is present on every host the module runs on.
+    proc = subprocess.run(["ps", "-eo", "pid=,ppid=,comm=,args="],
+                          capture_output=True, timeout=PROCESS_QUERY_TIMEOUT)
+    out = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 3 or not parts[0].isdigit():
+            continue
+        out.append({
+            "pid": int(parts[0]),
+            "ppid": int(parts[1]) if parts[1].isdigit() else 0,
+            "name": parts[2],
+            "exe": parts[3] if len(parts) > 3 else parts[2],
+        })
+    return out
+
+
+def _norm_path(value):
+    return str(value or "").replace("/", "\\").lower()
+
+
+def _is_codex_process(proc):
+    """True for the Codex desktop app and the app-server it spawns."""
+    name = str(proc.get("name") or "").lower()
+    exe = _norm_path(proc.get("exe"))
+    # The desktop app (and every renderer it forks) lives in the Codex package.
+    if name == "chatgpt.exe" and "\\windowsapps\\openai.codex_" in exe:
+        return True
+    # The app-server / CLI binary the desktop app starts as a child.
+    if name == "codex.exe" and "\\openai\\codex\\bin\\" in exe:
+        return True
+    return False
+
+
+def _is_claude_desktop_process(proc):
+    name = str(proc.get("name") or "").lower()
+    exe = _norm_path(proc.get("exe"))
+    if not name.startswith("claude"):
+        return False
+    return ("\\anthropicclaude\\" in exe or "\\claude\\" in exe
+            or "\\claude_" in exe)
+
+
+def client_processes(client_id, home=None, snapshot=None):
+    """Running processes belonging to `client_id` (empty when it is not up)."""
+    client = _client(client_id)
+    matcher = client.get("processes")
+    if matcher is None:
+        return []
+    procs = process_snapshot() if snapshot is None else snapshot
+    return [proc for proc in procs if matcher(proc)]
+
+
+def _descendants(procs, roots):
+    """Every process reachable from `roots` through parent links."""
+    wanted = {pid for pid in roots}
+    changed = True
+    while changed:
+        changed = False
+        for proc in procs:
+            if proc["ppid"] in wanted and proc["pid"] not in wanted:
+                wanted.add(proc["pid"])
+                changed = True
+    return wanted
+
+
+def _windows_package_launch_id(exe):
+    """The Start-menu id (AUMID) for an app running out of a WindowsApps package.
+
+    `...\\WindowsApps\\OpenAI.Codex_26.1007.9446.1_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe`
+    -> `OpenAI.Codex_2p2nqsd0c76g0!App`. The Application id is read from the
+    package manifest when it is readable and assumed to be `App` otherwise.
+    """
+    raw = str(exe or "").replace("/", "\\")
+    marker = "\\WindowsApps\\"
+    at = raw.lower().find(marker.lower())
+    if at < 0:
+        return None
+    # Keep the original casing: the package name is part of the id.
+    pkg_dir = raw[at + len(marker):].split("\\")[0]
+    if "__" not in pkg_dir or "_" not in pkg_dir:
+        return None
+    name = pkg_dir.split("_", 1)[0]
+    publisher_hash = pkg_dir.rsplit("__", 1)[1]
+    family = "%s_%s" % (name, publisher_hash)
+    app_id = "App"
+    try:
+        root = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                            "WindowsApps", pkg_dir)
+        with open(os.path.join(root, "AppxManifest.xml"), encoding="utf-8") as fh:
+            manifest = fh.read()
+        found = re.search(r'<Application\b[^>]*\bId="([^"]+)"', manifest)
+        if found:
+            app_id = found.group(1)
+    except Exception:
+        pass
+    return "%s!%s" % (family, app_id)
+
+
+def _terminate(procs, pids):
+    """Best-effort kill of `pids`; returns the ones that are gone afterwards."""
+    for pid in sorted(pids):
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                               capture_output=True, timeout=30)
+            else:
+                os.kill(pid, 15)
+        except Exception:
+            pass
+    if os.name != "nt":
+        time.sleep(0.5)
+    alive = set()
+    try:
+        alive = {proc["pid"] for proc in process_snapshot()}
+    except AgentConfigError:
+        pass
+    return [pid for pid in pids if pid not in alive]
+
+
+def restart_client(client_id, home=None, wait=2.0):
+    """Quit and relaunch `client_id`, so it re-reads the config we just wrote.
+
+    Returns a report; never raises for "it was not running" - that is a normal
+    outcome and the caller shows it as "nothing to restart".
+    """
+    client = _client(client_id)
+    launcher = client.get("relaunch")
+    if client.get("processes") is None or launcher is None:
+        return {"supported": False, "reason": "%s cannot be restarted by the "
+                "gateway" % client["label"], "stopped": [], "started": False}
+    # Killing processes is the one irreversible thing this module can do, so a
+    # test run must never reach it by accident: the suites drive the real
+    # handler, and one that forgot to stub this out would kill the operator's
+    # Codex or Claude Desktop - and then rewrite its config.
+    if _RESTART_DISABLED:
+        return {"supported": True, "running": None, "stopped": [],
+                "started": False, "blocked": True,
+                "reason": "restarts are disabled by WB_AGENTS_NO_RESTART"}
+    try:
+        procs = process_snapshot()
+    except Exception as exc:
+        return {"supported": True, "running": None, "stopped": [],
+                "started": False, "error": "cannot read the process table: %s" % exc}
+    matches = [proc for proc in procs if client["processes"](proc)]
+    if not matches:
+        return {"supported": True, "running": False, "stopped": [],
+                "started": False, "reason": "%s is not running" % client["label"]}
+    # Kill the tree rooted at the outermost matched process so the app's own
+    # children (renderers, the app-server) cannot keep the old config alive.
+    roots = [proc["pid"] for proc in matches
+             if proc["ppid"] not in {other["pid"] for other in matches}]
+    targets = _descendants(procs, roots or [proc["pid"] for proc in matches])
+    stopped = _terminate(procs, targets)
+    if wait:
+        time.sleep(wait)
+    started = launcher(matches)
+    return {
+        "supported": True,
+        "running": True,
+        "stopped": sorted(stopped),
+        "started": bool(started),
+        "launch": started.get("command") if isinstance(started, dict) else None,
+        "error": started.get("error") if isinstance(started, dict) else None,
+    }
+
+
+def _launch_codex(matches):
+    """Relaunch the Codex desktop app the same way the Start menu does."""
+    for proc in matches:
+        if str(proc.get("name") or "").lower() != "chatgpt.exe":
+            continue
+        aumid = _windows_package_launch_id(proc.get("exe"))
+        if not aumid:
+            continue
+        command = "shell:AppsFolder\\%s" % aumid
+        try:
+            if os.name == "nt":
+                subprocess.Popen(["explorer.exe", command])
+            else:
+                return {"error": "only Windows can relaunch the Codex app"}
+        except Exception as exc:
+            return {"error": str(exc)}
+        return {"command": command}
+    return {"error": "the Codex app executable was not found in this process "
+                     "list; reopen it from the Start menu"}
+
+
+def _launch_claude_desktop(matches):
+    exe = next((proc["exe"] for proc in matches if proc.get("exe")), None)
+    if not exe or not os.path.exists(exe):
+        return {"error": "the Claude Desktop executable was not found"}
+    try:
+        subprocess.Popen([exe])
+    except Exception as exc:
+        return {"error": str(exc)}
+    return {"command": exe}
+
+
 def _claude_settings_path(home):
     override = os.environ.get("CLAUDE_CONFIG_DIR")
     if override:
@@ -592,10 +882,17 @@ def _apply_claude_code(paths, ctx):
     env["ANTHROPIC_BASE_URL"] = re.sub(r"/v1/?$", "", ctx["base_url"])
     env["ANTHROPIC_AUTH_TOKEN"] = ctx["api_key"]
     if ctx.get("model"):
+        # Every slot Claude Code picks up. ANTHROPIC_MODEL is the main one, but
+        # the app also runs a small/fast model and a sub-agent model (background
+        # summaries, /compact, sub-agents); leave them unset and those turns go
+        # to whatever the built-in default is - which for a third-party gateway
+        # is a model name it does not serve. CC Switch sets all of these too.
         for name in ("ANTHROPIC_MODEL",
+                     "ANTHROPIC_SMALL_FAST_MODEL",
                      "ANTHROPIC_DEFAULT_SONNET_MODEL",
                      "ANTHROPIC_DEFAULT_OPUS_MODEL",
-                     "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
+                     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                     "CLAUDE_CODE_SUBAGENT_MODEL"):
             env[name] = ctx["model"]
     data["env"] = env
     return {path: _dump_json(data)}
@@ -731,7 +1028,11 @@ def _apply_codex(paths, ctx):
         text = toml_upsert_top_key(text, "model", ctx["model"])
     # The desktop app needs a catalog to surface the gateway's models, and we
     # keep response storage off so third-party traffic is not written upstream.
-    text = toml_upsert_top_key(text, "model_catalog_json", CODEX_CATALOG_FILE)
+    # The path is written absolute on purpose: the Codex CLI resolves a
+    # relative one against its own working directory, so `codex` started from
+    # anywhere but the home directory would silently see no third-party models.
+    # CC Switch canonicalises this key the same way.
+    text = toml_upsert_top_key(text, "model_catalog_json", paths["catalog"])
     text = toml_upsert_top_key(text, "disable_response_storage", True)
     # The desktop app reads the API key inline from experimental_bearer_token.
     # Do NOT also set env_key: the app then treats env_key as the chosen auth
@@ -979,6 +1280,119 @@ def _apply_zcode(paths, ctx):
     return {path: _dump_json(data)}
 
 
+# ---------------------------------------------------------------------------
+# Claude Desktop (the desktop app, not Claude Code)
+# ---------------------------------------------------------------------------
+# Claude Desktop is a different program from Claude Code: it does not read
+# ANTHROPIC_BASE_URL out of settings.json, it takes its custom inference
+# gateway from a *profile* under its own `configLibrary` directory. The layout
+# below mirrors what CC Switch writes, which is the shape Claude Desktop
+# itself accepts:
+#
+#   <Claude>\claude_desktop_config.json      {"deploymentMode": "3p"}
+#   <Claude-3p>\claude_desktop_config.json   {"deploymentMode": "3p"}
+#   <Claude-3p>\configLibrary\<profile>.json the gateway profile
+#   <Claude-3p>\configLibrary\_meta.json     entries + appliedId
+#
+# Claude Desktop validates the model names inside that profile against a role
+# whitelist (sonnet / opus / haiku / fable), and a name it does not recognise
+# makes it reject the whole group. So the profile may only advertise
+# `claude-<role>-<n>` ids; the gateway maps those back to a real model (see
+# the claude-route alias in wb_proxy). Writing the raw upstream model id here
+# would break the picker.
+
+CLAUDE_DESKTOP_PROFILE_ID = "00000000-0000-4000-8000-000000157210"
+CLAUDE_DESKTOP_PROFILE_NAME = "WB Proxy"
+CLAUDE_DESKTOP_CONFIG_FILE = "claude_desktop_config.json"
+CLAUDE_DESKTOP_LIBRARY_DIR = "configLibrary"
+
+#: The role ids Claude Desktop accepts, in picker order.
+CLAUDE_DESKTOP_ROUTES = (
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-haiku-4-5",
+    "claude-fable-5",
+)
+
+
+def _claude_desktop_dirs(home):
+    """(<Claude dir>, <Claude-3p dir>) for this platform."""
+    override = os.environ.get("WB_CLAUDE_DESKTOP_DIR")
+    override3p = os.environ.get("WB_CLAUDE_DESKTOP_3P_DIR")
+    if override and override3p:
+        return override, override3p
+    if os.name == "nt":
+        # Follow the injected home (as every other client here does) rather
+        # than %LOCALAPPDATA%: for the real user they are the same directory,
+        # and a caller that points `home` somewhere else - a test, or the
+        # standalone configurator - gets a hermetic answer.
+        base = os.path.join(home, "AppData", "Local")
+        return os.path.join(base, "Claude"), os.path.join(base, "Claude-3p")
+    if sys.platform == "darwin":
+        base = os.path.join(home, "Library", "Application Support")
+        return os.path.join(base, "Claude"), os.path.join(base, "Claude-3p")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    return os.path.join(base, "Claude"), os.path.join(base, "Claude-3p")
+
+
+def _claude_desktop_paths(home):
+    normal_dir, threep_dir = _claude_desktop_dirs(home)
+    library = os.path.join(threep_dir, CLAUDE_DESKTOP_LIBRARY_DIR)
+    return {
+        "config": os.path.join(normal_dir, CLAUDE_DESKTOP_CONFIG_FILE),
+        "config3p": os.path.join(threep_dir, CLAUDE_DESKTOP_CONFIG_FILE),
+        "profile": os.path.join(library, CLAUDE_DESKTOP_PROFILE_ID + ".json"),
+        "meta": os.path.join(library, "_meta.json"),
+    }
+
+
+def _claude_desktop_deployment_mode(path):
+    data = _load_json(path, "claude desktop config")
+    data["deploymentMode"] = "3p"
+    return _dump_json(data)
+
+
+def _claude_desktop_profile(ctx):
+    """The gateway profile Claude Desktop reads out of configLibrary."""
+    root = re.sub(r"/v1/?$", "", str(ctx.get("base_url") or ""))
+    return _dump_json({
+        "coworkEgressAllowedHosts": ["*"],
+        "disableDeploymentModeChooser": True,
+        "inferenceGatewayApiKey": ctx.get("api_key") or "",
+        "inferenceGatewayAuthScheme": "bearer",
+        "inferenceGatewayBaseUrl": root,
+        "inferenceProvider": "gateway",
+        "inferenceModels": list(CLAUDE_DESKTOP_ROUTES),
+    })
+
+
+def _claude_desktop_meta(path):
+    """Register our profile in configLibrary/_meta.json and make it current."""
+    data = _load_json(path, "claude desktop library index")
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        entries = []
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("id") == CLAUDE_DESKTOP_PROFILE_ID:
+            entry["name"] = CLAUDE_DESKTOP_PROFILE_NAME
+            break
+    else:
+        entries.append({"id": CLAUDE_DESKTOP_PROFILE_ID,
+                        "name": CLAUDE_DESKTOP_PROFILE_NAME})
+    data["entries"] = entries
+    data["appliedId"] = CLAUDE_DESKTOP_PROFILE_ID
+    return _dump_json(data)
+
+
+def _apply_claude_desktop(paths, ctx):
+    return {
+        paths["config"]: _claude_desktop_deployment_mode(paths["config"]),
+        paths["config3p"]: _claude_desktop_deployment_mode(paths["config3p"]),
+        paths["profile"]: _claude_desktop_profile(ctx),
+        paths["meta"]: _claude_desktop_meta(paths["meta"]),
+    }
+
+
 CLIENTS = {
     "claude-code": {
         "id": "claude-code",
@@ -994,6 +1408,22 @@ CLIENTS = {
             or bool(shutil.which("claude"))
         ),
         "apply": _apply_claude_code,
+    },
+    "claude-desktop": {
+        "id": "claude-desktop",
+        "label": "Claude Desktop",
+        "desc": "Claude 桌面版；写入 Claude-3p 的 configLibrary 网关 profile"
+                "（deploymentMode=3p）。",
+        "protocol": "anthropic",
+        "files": _claude_desktop_paths,
+        "probe": lambda home: (
+            os.path.isdir(_claude_desktop_dirs(home)[0])
+            or os.path.isdir(_claude_desktop_dirs(home)[1])
+            or bool(shutil.which("claude-desktop"))
+        ),
+        "apply": _apply_claude_desktop,
+        "processes": _is_claude_desktop_process,
+        "relaunch": _launch_claude_desktop,
     },
     "codex": {
         "id": "codex",
@@ -1012,6 +1442,8 @@ CLIENTS = {
             or bool(shutil.which("codex"))
         ),
         "apply": _apply_codex,
+        "processes": _is_codex_process,
+        "relaunch": _launch_codex,
     },
     "opencode": {
         "id": "opencode",
@@ -1095,6 +1527,12 @@ def overview(accounts_dir, home=None):
     """Per-client install/apply summary for the panel."""
     home = _resolve_home(home)
     state = _load_state(accounts_dir)
+    # One process table for every client: the panel shows which ones are
+    # running, and one PowerShell round-trip per card would be wasteful.
+    try:
+        procs = process_snapshot()
+    except Exception:
+        procs = None
     out = {}
     for client_id in sorted(CLIENTS):
         client = CLIENTS[client_id]
@@ -1129,6 +1567,11 @@ def overview(accounts_dir, home=None):
             "desc": client["desc"],
             "protocol": client["protocol"],
             "installed": bool(client["probe"](home)) or bool(existing),
+            # Whether the panel may offer "restart it for me", and whether it
+            # is up right now (None = the process table could not be read).
+            "restartable": client.get("processes") is not None,
+            "running": (None if (procs is None or client.get("processes") is None)
+                        else bool([p for p in procs if client["processes"](p)])),
             # "configured" is about this gateway's integration record, not about
             # the client merely having a config file on disk - otherwise every
             # pre-existing config would advertise a restore that cannot run.
@@ -1189,12 +1632,16 @@ def plan(client_id, base_url, api_key, model=None, models=None, home=None):
 
 
 def integrate(accounts_dir, client_id, base_url, api_key, model=None,
-              models=None, home=None):
+              models=None, home=None, key_id=None):
     """Point `client_id` at this gateway; returns what was written.
 
     The first apply backs up the original bytes of every touched file; later
     applies keep the earliest backup so restore always returns to the state
     before the very first integration.
+
+    `key_id` records *which* panel key was handed to the client (never the key
+    itself), so a later re-apply - switching the upstream exit rewrites the
+    embedded model list - can resolve the same key again.
     """
     built = plan(client_id, base_url, api_key, model=model, models=models,
                  home=home)
@@ -1265,6 +1712,7 @@ def integrate(accounts_dir, client_id, base_url, api_key, model=None,
         "applied_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "base_url": built["base_url"],
         "model": built["model"],
+        "key_id": key_id,
         "files": entries,
     }
     _save_state(accounts_dir, state)
@@ -1274,8 +1722,14 @@ def integrate(accounts_dir, client_id, base_url, api_key, model=None,
         "applied_at": state[client_id]["applied_at"],
         "base_url": built["base_url"],
         "model": built["model"],
+        "key_id": key_id,
         "files": entries,
     }
+
+
+def integration_state(accounts_dir):
+    """The raw per-client integration record (never contains an API key)."""
+    return _load_state(accounts_dir)
 
 
 def restore(accounts_dir, client_id, home=None):

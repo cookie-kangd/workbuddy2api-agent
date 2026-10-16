@@ -232,9 +232,9 @@ check("inputs are not mutated", base["env"]["A"] == 1, base)
 print()
 print("[13] client registry integrity")
 
-check("all six expected clients registered",
-      sorted(A.CLIENTS) == ["claude-code", "codex", "crush", "dsh", "opencode",
-                            "zcode"],
+check("all expected clients registered",
+      sorted(A.CLIENTS) == ["claude-code", "claude-desktop", "codex", "crush",
+                            "dsh", "opencode", "zcode"],
       sorted(A.CLIENTS))
 ids = [c["id"] for c in A.CLIENTS.values()]
 check("registry ids are unique", len(set(ids)) == len(ids), ids)
@@ -657,6 +657,11 @@ class MockHandler:
         return [{"id": "model-fallback-1", "context_window": 128000},
                 {"id": "model-fallback-2", "context_window": 32000}]
 
+    def _agents_maybe_restart(self, wb_agents, client_id, wanted):
+        # This suite drives the handler with a fake home on a machine where the
+        # client is not installed; restarting is exercised on its own below.
+        return {"requested": False, "supported": True}
+
     def _json(self, code, obj):
         self.response = (code, obj)
         return (code, obj)
@@ -668,8 +673,10 @@ class MockHandler:
 # Patch integrate and restore targets to use our isolated home10
 orig_integrate = A.integrate
 orig_restore = A.restore
-A.integrate = lambda acct, cid, base_url, key, model=None, models=None, home=None: \
-    orig_integrate(acct10, cid, base_url, key, model=model, models=models, home=home10)
+A.integrate = lambda acct, cid, base_url, key, model=None, models=None, home=None, \
+    key_id=None: \
+    orig_integrate(acct10, cid, base_url, key, model=model, models=models,
+                   home=home10, key_id=key_id)
 A.restore = lambda acct, cid, home=None: \
     orig_restore(acct10, cid, home=home10)
 

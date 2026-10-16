@@ -1893,6 +1893,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '网关调用量（国际版）': 'Gateway calls (Global)',
     '网关运行日志': 'Gateway logs',
     '网关默认上游已切换并永久保存为:': 'The default upstream is switched and permanently saved as:',
+    '已重写客户端配置，并重启了正在运行的客户端': 'Client configs were rewritten and the running clients were restarted',
+    '已重写客户端配置，客户端当前未运行，下次打开生效': 'Client configs were rewritten; the clients are not running and will pick this up next time they start',
     '网关默认出口': 'Default gateway exit',
     '网络异常:': 'Network error:',
     '网页通道打卡 (国际版)': 'Web-channel check-in (Global)',
@@ -1952,13 +1954,18 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '写入各客户端配置时使用的网关地址、鉴权 Key 与默认模型。': 'The gateway URL, auth key and default model written into each client config.',
     '重新检测本机客户端': 'Re-detect local clients',
     '「全局 API Key」表示不在客户端配置里写入具体 Key，客户端沿用网关当前生效的全局 Key。': 'Global API Key means no concrete key is written into the client config; the client follows the gateway-level global key.',
-    '检测到以下客户端安装在本机；点击「一键配置」即可让它改走本网关，原配置自动备份，可随时还原。': 'The following clients were detected on this machine; click One-click Setup to route it through this gateway. The original config is backed up automatically and can be restored anytime.',
+    '检测到以下客户端安装在本机；点击「一键配置」即可让它改走本网关，原配置自动备份，可随时还原。配置完成后会自动重启正在运行的客户端，让新配置立刻生效。': 'The following clients were detected on this machine; click One-click Setup to route it through this gateway. The original config is backed up automatically and can be restored anytime. A client that is running is restarted afterwards so the new config takes effect immediately.',
     '任何支持 OpenAI 兼容或 Anthropic Messages 协议的客户端都可以手动接入本网关，把下面的地址填进客户端的 Base URL / API 地址即可；Key 到「设置」页复制。': 'Any client speaking OpenAI-compatible or Anthropic Messages protocol can join this gateway manually: paste the addresses below into the client Base URL / API URL field; copy the key from the Settings page.',
     '鉴权 Key 请前往「设置 → API Key 与出口绑定」页复制，填入客户端的 API Key / Token 字段。': 'Copy the auth key from Settings → API Key & Exit Binding and fill it into the client API Key / Token field.',
     '客户端检测完成': 'Client detection finished',
     '智能体列表加载失败:': 'Failed to load agent list:',
     '检测到外部修改：还原将覆盖外部改动': 'External changes detected: restoring will overwrite them',
     '配置文件在应用之后被外部修改过': 'The config file was modified externally after it was applied',
+    '运行中': 'Running',
+    '该客户端正在运行，配置完成后会自动重启': 'This client is running; it will be restarted after setup',
+    '，并已重启该客户端': ', and the client was restarted',
+    '；客户端当前未运行，下次打开自动生效': '; the client is not running, so it will pick this up next time it starts',
+    '，但自动重启失败：': ', but the automatic restart failed: ',
     '未找到客户端:': 'Client not found:',
     '请先填写网关地址': 'Fill in the gateway URL first',
     '原配置已备份': 'original config backed up',
@@ -2589,6 +2596,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "网关运行日志": "閘道執行日誌",
     "网关默认上游已切换并永久保存为:": "閘道預設上游已切換並永久儲存為:",
     "网关默认上游已切换并永久保存为: ": "閘道預設上游已切換並永久儲存為: ",
+    "已重写客户端配置，并重启了正在运行的客户端": "已重寫客戶端設定，並重啟了正在運行的客戶端",
+    "已重写客户端配置，客户端当前未运行，下次打开生效": "已重寫客戶端設定，客戶端目前未運行，下次開啟時生效",
     "网关默认出口": "閘道預設出口",
     "网络异常:": "網路異常:",
     "网络异常: ": "網路異常: ",
@@ -4529,7 +4538,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div>
           <h2 style="margin:0">本机客户端 <em id="agentDetectState"></em></h2>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">检测到以下客户端安装在本机；点击「一键配置」即可让它改走本网关，原配置自动备份，可随时还原。</div>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">检测到以下客户端安装在本机；点击「一键配置」即可让它改走本网关，原配置自动备份，可随时还原。配置完成后会自动重启正在运行的客户端，让新配置立刻生效。</div>
         </div>
       </div>
       <div id="agentCardGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px"></div>
@@ -5121,6 +5130,20 @@ async function toggleActiveGatewayRealm(){
     const res = await postJSON("/realm", {realm: next});
     window.ACTIVE_GATEWAY_REALM = res.current || next;
     toast("网关默认上游已切换并永久保存为: " + (window.ACTIVE_GATEWAY_REALM === "intl" ? "国际版" : "国内版"));
+    // Switching the exit changes the model list, and the one-click clients
+    // bake that list into their own config: the server rewrites those files
+    // (and restarts the app) as part of this call. Say so, otherwise the old
+    // model list silently lingers in the client.
+    const ag = res.agents || null;
+    const restartedAgents = ag && Array.isArray(ag.results)
+      ? ag.results.filter(x => (x.restart || {}).started).length : 0;
+    const rewrittenAgents = ag && Array.isArray(ag.results)
+      ? ag.results.filter(x => x.rewritten).length : 0;
+    if(rewrittenAgents){
+      toast(restartedAgents
+        ? "已重写客户端配置，并重启了正在运行的客户端"
+        : "已重写客户端配置，客户端当前未运行，下次打开生效");
+    }
     setViewRealm(window.ACTIVE_GATEWAY_REALM);
     window.updateUI();
     await Promise.all([loadAccounts(), loadModels(), loadGrowthTasks(),
@@ -11453,6 +11476,16 @@ function renderAgentCards(){
     }
     const applyLabel = applied ? '重新应用' : '一键配置';
     const notDetected = !(c.installed || c.detected);
+    // Claude clients cannot reach a model while the Anthropic Messages bridge
+    // is off: the gateway answers 400 before forwarding. Say it on the card
+    // rather than let the user discover it mid-session.
+    const needsBridge = c.protocol === 'anthropic'
+      && AGENTS_DATA && AGENTS_DATA.anthropic_messages_enabled === false;
+    if(needsBridge){
+      warnHtml += '<div class="badge warn" style="margin-top:8px" title="'
+        + 'Anthropic 客户端需要「设置 → 启用 Anthropic Messages 接口」；一键配置时会自动打开">'
+        + '需要开启 Anthropic Messages 通道</div>';
+    }
     const btns = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
       + '<button class="mini" onclick="applyAgent(&quot;' + idAttr + '&quot;, this)"' + (notDetected ? ' disabled title="未检测到该客户端"' : '') + '>' + applyLabel + '</button>'
       + (applied ? '<button class="danger mini" onclick="restoreAgent(&quot;' + idAttr + '&quot;, this)">还原原始配置</button>' : '')
@@ -11460,7 +11493,11 @@ function renderAgentCards(){
     return '<div style="background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">'
       + '<div style="font-weight:600;color:var(--fg);font-size:14px">' + name + '</div>'
-      + agentStatusBadge(c) + '</div>'
+      + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + agentStatusBadge(c)
+      + (c.running === true
+          ? '<span class="badge s" title="该客户端正在运行，配置完成后会自动重启">运行中</span>'
+          : '')
+      + '</div></div>'
       + '<div style="font-size:11px;color:var(--accent)">' + agentProtocolLabel(c.protocol) + '</div>'
       + desc
       + pathsHtml
@@ -11495,12 +11532,26 @@ async function applyAgent(id, btn){
       base_url: baseUrl,
       key_id: keySel ? keySel.value : '',
       model: modelSel ? modelSel.value : '',
-      models: (AGENT_MODELS || []).map(m => (typeof m === 'object' ? (m.id || '') : m)).filter(Boolean)
+      models: (AGENT_MODELS || []).map(m => (typeof m === 'object' ? (m.id || '') : m)).filter(Boolean),
+      // Restart the client afterwards so the file we just wrote is actually
+      // read; the server only restarts one that is running.
+      restart: true
     });
     if(r && (r.ok === false || r.error)){
       toast('配置失败: ' + (r.message || (r.error && r.error.message) || '未知错误'), 'bad');
     } else {
-      toast('已配置「' + (client.label || id) + '」，原配置已备份', 'ok');
+      const rst = (r && r.restart) || null;
+      let msg = '已配置「' + (client.label || id) + '」，原配置已备份';
+      if(rst && rst.started){
+        msg += '，并已重启该客户端';
+      } else if(rst && rst.running === false){
+        msg += '；客户端当前未运行，下次打开自动生效';
+      } else if(rst && rst.requested && rst.error){
+        msg += '，但自动重启失败：' + rst.error;
+        toast(msg, 'warn');
+        return;
+      }
+      toast(msg, 'ok');
     }
   } catch(e) {
     if(!isAuthError(e)) toast('配置失败: ' + e.message, 'bad');

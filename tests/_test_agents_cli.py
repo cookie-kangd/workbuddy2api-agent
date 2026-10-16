@@ -134,9 +134,10 @@ home1 = os.path.join(TMP, "home1")
 os.makedirs(home1)
 code, out, err = run_cli(["--home", home1, "--state-dir", os.path.join(TMP, "state1"), "list"])
 check("exit 0", code == 0, (code, err))
-for client in ("claude-code", "codex", "opencode", "dsh", "crush", "zcode"):
+for client in ("claude-code", "claude-desktop", "codex", "opencode", "dsh",
+               "crush", "zcode"):
     check("%s listed" % client, client in out, out)
-check("nothing is reported installed", out.count("not detected") == 6, out)
+check("nothing is reported installed", out.count("not detected") == 7, out)
 
 # The shared options work on either side of the subcommand (parents= with
 # SUPPRESS defaults); --json after the verb is the natural spelling.
@@ -144,8 +145,8 @@ code, out, err = run_cli(["--home", home1, "--state-dir", os.path.join(TMP, "sta
                           "list", "--json"])
 data = json.loads(out)
 check("--json after the subcommand parses",
-      code == 0 and sorted(data) == ["claude-code", "codex", "crush", "dsh",
-                                     "opencode", "zcode"],
+      code == 0 and sorted(data) == ["claude-code", "claude-desktop", "codex",
+                                     "crush", "dsh", "opencode", "zcode"],
       (code, err, out[:200]))
 
 # ---------------------------------------------------------------------------

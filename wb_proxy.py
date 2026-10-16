@@ -23,15 +23,16 @@ from collections import deque
 import re
 import json
 import os
-# 单请求体上限。默认值从 50MB 收紧到 16MB，是「内存护栏」：body 先整体读成 bytes、
+# 单请求体上限。默认值曾是 50MB，为「内存护栏」收紧到 16MB：body 先整体读成 bytes、
 # 再 decode 成 str、再 json.loads 成对象，实测 50MB body 的 decode+parse 峰值约
 # 109MB、单请求峰值约 160MB；而读 body 发生在 chat 信号量 acquire 之前、线程数又
-# 没有上限，路由器（可用内存约 480MB）上几个并发大 body 就能把机器打穿。
-# 权衡：另一条路是把 body 读取也纳入 chat 信号量，但那会改动 401/404/413 早退与
-# 503 的先后语义、并让慢客户端占着 slot 拖住信号量；只收紧默认值保守得多——16MB
-# 对正常客户端绰绰有余（Codex 1M token 上下文的 JSON 也只有几 MB），确需更大可
-# 显式设 WB_MAX_PAYLOAD_BYTES，内存代价由运维者自己拍板。
-MAX_PAYLOAD_BYTES = int(os.environ.get("WB_MAX_PAYLOAD_BYTES", 16 * 1024 * 1024))  # 16MB limit
+# 没有上限，路由器（可用内存约 480MB）上几个并发大 body 就能把机器打穿。这条护栏
+# 本身没问题，问题在阈值选低了：2026-10-16 一批直连 Codex 的请求实测 16.90~16.92MB，
+# 只比 16MB 高一点点，却让整个回合 413（客户端还会用同一份 body 反复重试）。
+# 现在放宽到 32MB：仍然拦住「几个 50MB 并发把机器打穿」的最坏情况，同时给 1M 上下文
+# ＋图片附件的会话留出余量。确需更大（或更小）可显式设 WB_MAX_PAYLOAD_BYTES，内存
+# 代价由运维者自己拍板。
+MAX_PAYLOAD_BYTES = int(os.environ.get("WB_MAX_PAYLOAD_BYTES", 32 * 1024 * 1024))  # 32MB limit
 # Upstream chat calls may hold a handler thread for up to 600s, and every
 # request gets its own thread, so an unbounded pool lets a handful of slow
 # clients pin hundreds of threads and the memory behind them. Bound the number
@@ -340,6 +341,59 @@ def _apply_background_model_alias(payload):
         return
     payload["model"] = BACKGROUND_MODEL_TARGET
     log("alias: background model %s -> %s" % (name, BACKGROUND_MODEL_TARGET))
+
+
+# ---------------------------------------------------------------------------
+# Claude Desktop role routes
+# ---------------------------------------------------------------------------
+# Claude Desktop accepts a custom inference gateway, but its profile may only
+# list models whose id looks like `claude-<role>-<n>` (sonnet / opus / haiku /
+# fable); one name it does not recognise makes it reject the whole group. The
+# panel therefore advertises the role ids and records the real model the
+# operator picked with the integration; this maps them back, so the app's
+# "Sonnet" button lands on the model the operator chose.
+CLAUDE_DESKTOP_ROLE_ROUTES = (
+    "claude-sonnet-", "claude-opus-", "claude-haiku-", "claude-fable-",
+    "claude-mythos-",
+)
+CLAUDE_DESKTOP_ROUTE_TARGET = os.environ.get(
+    "WB_CLAUDE_ROUTE_TARGET", "deepseek-v4.1-flash")
+_claude_route_cache = {"stamp": None, "target": None}
+
+
+def claude_desktop_route_target():
+    """The model the claude-<role>-<n> ids resolve to, or None when unset."""
+    path = os.path.join(ACCOUNTS_DIR, "integration-state.json")
+    try:
+        stamp = os.path.getmtime(path)
+    except OSError:
+        return None
+    if _claude_route_cache["stamp"] != stamp:
+        target = None
+        try:
+            with open(path, encoding="utf-8") as fh:
+                record = (json.load(fh) or {}).get("claude-desktop") or {}
+            target = str(record.get("model") or "").strip() or None
+        except Exception:
+            target = None
+        _claude_route_cache["stamp"] = stamp
+        _claude_route_cache["target"] = target
+    return _claude_route_cache["target"]
+
+
+def _apply_claude_desktop_route_alias(payload):
+    """Resolve a Claude Desktop role id to the model it was configured for."""
+    if not isinstance(payload, dict):
+        return
+    name = payload.get("model")
+    if not isinstance(name, str):
+        return
+    lowered = name.strip().lower()
+    if not any(lowered.startswith(prefix) for prefix in CLAUDE_DESKTOP_ROLE_ROUTES):
+        return
+    target = claude_desktop_route_target() or CLAUDE_DESKTOP_ROUTE_TARGET
+    payload["model"] = target
+    log("alias: Claude Desktop route %s -> %s" % (name, target))
 
 
 # The WorkBuddy AI desktop app caches its account product config here on every
@@ -9915,7 +9969,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.1",
+        "version": "0.1.2",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -12505,6 +12559,13 @@ class RateLimited(Exception):
         super().__init__("upstream rate limit: %s" % (self.detail[:200] or "429"))
 
 
+#: The exact wording `_payload_or_error` uses when *we* refuse an oversized
+#: body. Kept as a pattern so `gateway_hint` can tell our own 413 apart from an
+#: upstream one that happens to say "payload too large" too.
+_LOCAL_PAYLOAD_CAP_RE = re.compile(
+    r"payload too large \(\d+ bytes > \d+ limit\)")
+
+
 def gateway_hint(status, message):
     """A gateway-side note that sits beside the raw upstream message.
 
@@ -12522,8 +12583,17 @@ def gateway_hint(status, message):
     text = str(message or "")
     lower = text.lower()
     if status == 413 and "payload too large" in lower:
-        return ("single request body exceeds the gateway cap "
-                "(WB_MAX_PAYLOAD_BYTES, default 16MB); raise it and restart wb-proxy")
+        # Two different 413s land here: the gateway refusing a body over its own
+        # cap, and the model provider refusing a body it thinks is too big. The
+        # local one is ours to fix (raise WB_MAX_PAYLOAD_BYTES); telling the
+        # operator to raise a limit when the upstream is the one complaining
+        # sends them the wrong way, so match our own wording exactly.
+        if _LOCAL_PAYLOAD_CAP_RE.search(text):
+            return ("single request body exceeds the gateway cap "
+                    "(WB_MAX_PAYLOAD_BYTES, default %dMB); raise it and restart "
+                    "wb-proxy" % (MAX_PAYLOAD_BYTES // (1024 * 1024)))
+        return ("the model provider rejected this request as too large; "
+                "shorten the conversation (drop large attachments) and retry")
     if status == 503 and "concurrent chat limit" in lower:
         return "gateway is busy at its concurrency limit; retry shortly"
     if ("11133" in lower or "model_param_invalid" in lower
@@ -16073,7 +16143,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.1"
+    server_version = "wb-proxy/0.1.2"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -17931,8 +18001,107 @@ class Handler(BaseHTTPRequestHandler):
             "keys": keys,
             "global_key_set": bool(API_KEY),
             "auth_required": auth_required(),
+            # Claude Code / Claude Desktop speak Anthropic Messages, and the
+            # gateway refuses that route unless the bridge is on; the panel
+            # warns on those cards instead of letting the user find out with a
+            # 400 halfway through a session.
+            "anthropic_messages_enabled": _anthropic_messages_enabled(),
             "gateway": {"base_url": self._agents_base_url_hint()},
         })
+
+    def _agents_maybe_restart(self, wb_agents, client_id, wanted):
+        """Restart a client we just reconfigured so it re-reads its file.
+
+        Codex and Claude Desktop read their configuration once, at startup, so
+        rewriting the file alone changes nothing until the app is reopened -
+        the single most common "I configured it and it still does not work".
+        `wanted` is the caller's choice: None (the default) restarts only when
+        the app is already running, True always tries, False skips.
+        """
+        if wanted is False:
+            return {"requested": False, "supported": True}
+        try:
+            report = wb_agents.restart_client(client_id)
+        except Exception as exc:
+            return {"requested": True, "supported": False, "ok": False,
+                    "error": str(exc)}
+        report["requested"] = True
+        report["ok"] = bool(report.get("started")) and not report.get("error")
+        if report.get("stopped") or report.get("error"):
+            log("agents restart: client=%s stopped=%s started=%s error=%s"
+                % (client_id, report.get("stopped"), report.get("started"),
+                   report.get("error") or "-"), tag="agents")
+        return report
+
+    def _agents_reapply_for_realm(self, restart=None):
+        """Rewrite every integration whose config embeds the model list.
+
+        The upstream exit decides which models exist, and Codex / DSH / Crush /
+        OpenCode bake that list into their own config, so switching the exit
+        leaves them pointing at the previous side's models until the file is
+        rewritten. Only integrations this gateway wrote - and that nobody has
+        edited since - are touched, and the app is restarted afterwards when it
+        is running. Never raises: a failure here must not fail the exit switch.
+        """
+        try:
+            if not self._agents_client_allowed():
+                return {"available": False,
+                        "reason": "agent config is only available from the "
+                                  "machine running the gateway"}
+            wb_agents = agents_module()
+            state = wb_agents.integration_state(ACCOUNTS_DIR)
+            if not state:
+                return {"available": True, "results": []}
+            try:
+                overview = wb_agents.overview(ACCOUNTS_DIR)
+            except Exception:
+                overview = {}
+            models = self._agents_models()
+            results = []
+            for client_id, record in sorted(state.items()):
+                client = wb_agents.CLIENTS.get(client_id)
+                if client is None or not isinstance(record, dict):
+                    continue
+                applied = (overview.get(client_id) or {}).get("applied") or {}
+                if applied.get("external_change"):
+                    results.append({"client": client_id,
+                                    "skipped": "config changed on disk"})
+                    continue
+                base_url = str(record.get("base_url") or "").strip()
+                if not base_url:
+                    continue
+                warnings = []
+                try:
+                    api_key = self._agents_resolve_key(
+                        {"key_id": record.get("key_id")}, warnings)
+                except Exception:
+                    api_key = None
+                if not api_key:
+                    if auth_required():
+                        results.append({"client": client_id,
+                                        "skipped": "no gateway key available"})
+                        continue
+                    api_key = "wb-local"
+                try:
+                    written = wb_agents.integrate(
+                        ACCOUNTS_DIR, client_id, base_url, api_key,
+                        model=record.get("model"), models=models,
+                        key_id=record.get("key_id"))
+                except Exception as exc:
+                    results.append({"client": client_id, "error": str(exc)})
+                    continue
+                entry = {"client": client_id,
+                         "rewritten": len(written.get("files") or [])}
+                if restart is not False:
+                    entry["restart"] = self._agents_maybe_restart(
+                        wb_agents, client_id, restart)
+                results.append(entry)
+            if results:
+                log("realm switch: re-applied agent configs %s"
+                    % ", ".join(r["client"] for r in results), tag="agents")
+            return {"available": True, "results": results}
+        except Exception as exc:
+            return {"available": True, "error": str(exc), "results": []}
 
     def _agents_resolve_key(self, payload, warnings):
         """Pick the gateway key to hand to the client, per the payload.
@@ -18030,15 +18199,40 @@ class Handler(BaseHTTPRequestHandler):
             api_key = "wb-local"
             warnings.append("gateway has no key configured; wrote placeholder "
                             "'wb-local' (auth is off, so any value works)")
+        # An Anthropic-protocol client cannot work while the Messages bridge is
+        # off: the gateway answers 400 before the request reaches a model, so
+        # one-click setup would hand back a config that is guaranteed to fail.
+        # The bridge is off by default because the translation drops
+        # cache_control (issue #367), so turn it on *and say so* - the operator
+        # can switch it back off on the Settings page.
+        if (wb_agents.CLIENTS.get(client_id) or {}).get("protocol") == "anthropic":
+            try:
+                if not _anthropic_messages_enabled():
+                    wb_settings.set_enable_anthropic_messages(ACCOUNTS_DIR, True)
+                    warnings.append(
+                        "已自动开启「Anthropic Messages 接口」：Claude 客户端靠它"
+                        "接入，默认关闭时请求会被网关 400 拒绝。长上下文会话可能更"
+                        "费积分，可在「设置」页关闭。")
+                    log("agents apply: enabled the Anthropic Messages bridge "
+                        "for %s" % client_id, tag="agents")
+            except Exception as exc:
+                warnings.append(
+                    "无法自动开启「Anthropic Messages 接口」：%s；请在「设置」页"
+                    "手动打开，否则该客户端会收到 400" % exc)
         try:
             result = wb_agents.integrate(
                 ACCOUNTS_DIR, client_id, base_url, api_key,
-                model=model, models=cleaned_models)
+                model=model, models=cleaned_models,
+                key_id=str(payload.get("key_id") or "").strip() or None)
         except wb_agents.AgentConfigError as exc:
             return self._error(400, str(exc), "invalid_request_error")
         except Exception as exc:
             return self._error(500, "agents apply failed: %s" % exc)
         result["warnings"] = warnings
+        # The client only re-reads the file we just wrote when it is restarted;
+        # the panel asks for that by default and can opt out with restart=false.
+        result["restart"] = self._agents_maybe_restart(
+            wb_agents, client_id, payload.get("restart"))
         log("agents apply: client=%s base_url=%s model=%s files=%d"
             % (client_id, base_url, model or "-", len(result.get("files") or [])),
             tag="agents")
@@ -18465,7 +18659,13 @@ class Handler(BaseHTTPRequestHandler):
         new_realm = payload.get("realm")
         if new_realm in ("intl", "cn"):
             save_persisted_realm(new_realm)
-        return self._json(200, {"ok": True, "current": CURRENT_REALM, "persisted": True})
+        # The exit decides which models exist, and the one-click clients bake
+        # that list into their own config: rewrite those files now (and restart
+        # the app when it is running) so the switch is not a lie until the user
+        # happens to reconfigure something.
+        agents = self._agents_reapply_for_realm(payload.get("restart"))
+        return self._json(200, {"ok": True, "current": CURRENT_REALM,
+                                "persisted": True, "agents": agents})
 
     def _route_accounts_checkin(self, payload):
         uid = payload.get("uid")
@@ -19411,6 +19611,7 @@ class Handler(BaseHTTPRequestHandler):
         if is_account_route:
             return self._handle_accounts(path, payload)
         _apply_background_model_alias(payload)
+        _apply_claude_desktop_route_alias(payload)
         # Check per-key concurrency limit (#359)
         key_ok, cur_key_conc, max_key_conc = _acquire_key_slot(self.key_entry)
         if not key_ok:

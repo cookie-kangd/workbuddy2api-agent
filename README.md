@@ -1,7 +1,7 @@
 # WorkBuddy2API-Agent — 国际版、国内版多账号反代网关
 
 <p align="center">
-  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.1-2496ED?style=flat-square" alt="Version 0.1.1"></a>
+  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.2-2496ED?style=flat-square" alt="Version 0.1.2"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -66,7 +66,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 154 个套件：114 个 Python + 40 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 156 个套件：116 个 Python + 40 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Windows + Python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**。
 
@@ -79,6 +79,7 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 | 客户端 | 写入位置 | 协议 |
 | --- | --- | --- |
 | Claude Code | `~/.claude/settings.json` | 原生 Anthropic Messages（自动剥 `/v1` 后缀） |
+| Claude Desktop | `%LOCALAPPDATA%\Claude[-3p]\claude_desktop_config.json`、`...\Claude-3p\configLibrary\` | 原生 Anthropic Messages（3P 网关 profile，模型名只能是 `claude-<角色>-<序号>`） |
 | Codex CLI / App | `~/.codex/config.toml`、`~/.codex/auth.json`、`~/.codex/wb-proxy-model-catalog.json` | Responses API（含桌面端模型目录，`model_catalog_json` 指向该文件） |
 | OpenCode | `~/.config/opencode/opencode.json` 等 | OpenAI 兼容 |
 
@@ -88,6 +89,10 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 - provider 表里放 `experimental_bearer_token` 直连令牌，并把 `requires_openai_auth = false`，避免 Codex 回落到 OpenAI 官方登录；
 - **不写 `env_key`**：写了 Codex 会把 `env_key` 当作鉴权来源而丢掉内联令牌，导致请求不带 Bearer、在「优化对话 / 重连」之间死循环；
 - 模型目录的 `context_window` 采用网关已解析的真实上限（可达 1M），与 `/v1/models` 的 `context_length` 一致，避免 Codex 过早自动压缩上下文。
+
+**配置完成后自动重启**：Codex 桌面版与 Claude Desktop 都只在启动时读一次配置，改完文件不重启就等于没改。看板点「一键配置」后，网关会**只重启正在运行的那一个**客户端（按可执行文件路径精确匹配，不会误杀同名的其他程序），没在运行的则提示"下次打开生效"。切换「国际版 / 国内版」出口时同理：会自动重写各客户端里嵌的模型清单，并重启正在运行的客户端。
+
+> 需要完全禁止这个行为（例如自动化环境）可设 `WB_AGENTS_NO_RESTART=1`：重启会被拒绝并记录原因，配置照常写入。
 
 也可以完全不装看板会话，直接用脚本接入（Key 在「设置」页生成）：
 

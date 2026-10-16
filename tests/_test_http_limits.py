@@ -9,9 +9,10 @@
   - GatewayServer.request_queue_size：stdlib 默认 backlog=5，突发并发下内核来
     不及 accept 的 SYN 被丢弃、客户端按 1s 粒度重传（真机 64 并发突发 43/64
     卡 >=1s；backlog=128 后 0/64）。
-  - MAX_PAYLOAD_BYTES 默认 50MB -> 16MB：读 body 发生在 chat 信号量 acquire
-    之前、线程数又无上限，50MB body 单请求峰值 ~160MB，而路由器可用内存只有
-    ~480MB。
+  - MAX_PAYLOAD_BYTES 默认 50MB -> 16MB -> 32MB：读 body 发生在 chat 信号量
+    acquire 之前、线程数又无上限，50MB body 单请求峰值 ~160MB，而路由器可用内存
+    只有 ~480MB；但 16MB 在真机上把 16.9MB 的正常回合也拒了，放宽到 32MB 仍然
+    拦住那个最坏情况。
 
 断言分两层：类属性是「声明」，行为断言（真实 socket 上读 TCP_NODELAY、实例化
 时监听套接字 listen() 的实参）才是「声明真的生效」。最后一组用桩证明超限 body
@@ -196,10 +197,16 @@ class PayloadCapTests(unittest.TestCase):
     """50MB body 单请求峰值 ~160MB 对 ~480MB 可用内存的护栏。"""
 
     def test_the_default_cap_is_the_new_value(self):
-        self.assertEqual(P.MAX_PAYLOAD_BYTES, 16 * 1024 * 1024,
-                         "the default body cap must stay at the tightened "
-                         "16MB; 50MB allowed a single request to peak at "
-                         "~160MB on a ~480MB router")
+        # 16MB was too tight in practice: real Codex turns on 2026-10-16 were
+        # 16.90-16.92MB, i.e. just over the line, and every one of them failed
+        # with a 413 that the client retried verbatim. 32MB keeps the guard
+        # against the 50MB worst case (a single request peaked at ~160MB on a
+        # ~480MB router) while leaving room for a 1M-context turn with an
+        # attachment.
+        self.assertEqual(P.MAX_PAYLOAD_BYTES, 32 * 1024 * 1024,
+                         "the default body cap is the memory guard between "
+                         "the old unguarded 50MB and the observed 16.9MB "
+                         "turns; change it only with a measurement")
 
     def test_an_over_limit_body_is_never_read(self):
         """行为级：Content-Length 超限在解析前就被拒，rfile 一个字节没动。
@@ -262,14 +269,14 @@ class PayloadCapTests(unittest.TestCase):
         模块常量在导入时求值，所以只能起子进程换环境变量验证。
         """
         env = dict(os.environ)
-        env["WB_MAX_PAYLOAD_BYTES"] = str(32 * 1024 * 1024)
+        env["WB_MAX_PAYLOAD_BYTES"] = str(64 * 1024 * 1024)
         env["PYTHONPATH"] = ROOT
         done = subprocess.run(
             [sys.executable, "-c",
              "import wb_proxy; print(wb_proxy.MAX_PAYLOAD_BYTES)"],
             cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr[-2000:])
-        self.assertEqual(done.stdout.strip(), str(32 * 1024 * 1024))
+        self.assertEqual(done.stdout.strip(), str(64 * 1024 * 1024))
 
 
 def _cleanup():
