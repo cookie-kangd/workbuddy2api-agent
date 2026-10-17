@@ -10176,7 +10176,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.12",
+        "version": "0.1.13",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16386,7 +16386,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.12"
+    server_version = "wb-proxy/0.1.13"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -18125,11 +18125,6 @@ class Handler(BaseHTTPRequestHandler):
         even when the upstream is down, so a failure here is simply a shorter
         list, never an error.
         """
-        # Same rule as /v1/models: with a third-party exit on, that endpoint's
-        # models are what a one-click apply must bake into the client.
-        if thirdparty_enabled():
-            return [{"id": mid} for mid in
-                    thirdparty_module().model_ids(ACCOUNTS_DIR)]
         return self._agents_models_for(None)
 
     def _agents_models_for(self, realm):
@@ -18143,6 +18138,21 @@ class Handler(BaseHTTPRequestHandler):
         """
         models = []
         seen = set()
+        # The third-party exit replaces the whole upstream, so its model list
+        # wins over both the global realm and a key-bound realm. Returning the
+        # WorkBuddy list here would make a re-apply write the wrong catalog
+        # while the chat route sends requests to the third-party service.
+        if thirdparty_enabled():
+            ids = thirdparty_module().model_ids(ACCOUNTS_DIR)
+            if not ids:
+                ids = thirdparty_module().load(ACCOUNTS_DIR).get("models") or []
+            out = []
+            for mid in ids:
+                mid = str(mid or "").strip()
+                if mid and mid not in seen:
+                    seen.add(mid)
+                    out.append({"id": mid})
+            return out
         try:
             try:
                 entries = fetch_models(realm or None)
@@ -18240,6 +18250,31 @@ class Handler(BaseHTTPRequestHandler):
             pass
         return models
 
+    def _agents_choose_model(self, model, models):
+        """Return a model id that exists in the list about to be written.
+
+        A realm switch or a third-party switch can leave the saved model on
+        the previous catalog. Prefer the same id (case-insensitively), then
+        the first model in the new list, rather than writing a dangling id
+        that the client cannot select.
+        """
+        model = str(model or "").strip()
+        ids = []
+        for item in models or []:
+            mid = item.get("id") if isinstance(item, dict) else item
+            mid = str(mid or "").strip()
+            if mid and mid not in ids:
+                ids.append(mid)
+        if not ids:
+            return None
+        if model:
+            if model in ids:
+                return model
+            lowered = {mid.lower(): mid for mid in ids}
+            if model.lower() in lowered:
+                return lowered[model.lower()]
+        return ids[0]
+
     def _get_agents_cli(self):
         """Serve wb_agents.py so a remote machine can fetch the configurator.
 
@@ -18302,7 +18337,15 @@ class Handler(BaseHTTPRequestHandler):
         log("thirdparty upstream enabled: %s (%d models%s)"
             % (profile["base_url"], len(models), ", " + error if error else ""),
             tag="agents")
-        return self._json(200, thirdparty_module().describe(ACCOUNTS_DIR))
+        if models:
+            agent_sync = self._agents_sync_client_configs(restart=True)
+        else:
+            agent_sync = {"available": True, "results": [],
+                          "warning": "third-party model list is empty; "
+                                     "agent configs were not rewritten"}
+        reply = thirdparty_module().describe(ACCOUNTS_DIR)
+        reply["agents"] = agent_sync
+        return self._json(200, reply)
 
     def _handle_thirdparty_probe(self, payload):
         """Re-fetch the endpoint's model list, saving any credential first."""
@@ -18332,8 +18375,11 @@ class Handler(BaseHTTPRequestHandler):
         thirdparty_module().save(
             ACCOUNTS_DIR, {"enabled": False, "base_url": current.get("base_url"),
                            "api_key": current.get("api_key")})
+        agent_sync = self._agents_reapply_for_realm(restart=True)
         log("thirdparty upstream disabled: back to the WorkBuddy exit", tag="agents")
-        return self._json(200, thirdparty_module().describe(ACCOUNTS_DIR))
+        reply = thirdparty_module().describe(ACCOUNTS_DIR)
+        reply["agents"] = agent_sync
+        return self._json(200, reply)
 
     def _get_agents(self):
         if not self._agents_client_allowed():
@@ -18451,10 +18497,15 @@ class Handler(BaseHTTPRequestHandler):
                 # cn list even when the global switch is on intl.
                 models = self._agents_models_for(
                     self._agents_key_realm({"key_id": record.get("key_id")}))
+                if not models:
+                    results.append({"client": client_id,
+                                    "skipped": "no models available"})
+                    continue
+                model = self._agents_choose_model(record.get("model"), models)
                 try:
                     written = wb_agents.integrate(
                         ACCOUNTS_DIR, client_id, base_url, api_key,
-                        model=record.get("model"), models=models,
+                        model=model, models=models,
                         key_id=record.get("key_id"),
                         home=record.get("home"))
                 except Exception as exc:
@@ -18478,6 +18529,78 @@ class Handler(BaseHTTPRequestHandler):
                 log("realm switch: re-applied agent configs %s"
                     % ", ".join(r["client"] for r in results), tag="agents")
             return {"available": True, "results": results}
+        except Exception as exc:
+            return {"available": True, "error": str(exc), "results": []}
+
+    def _agents_sync_client_configs(self, restart=True):
+        """Bring every local client in line with the current upstream exit.
+
+        A configured client is re-applied with the current model catalog. An
+        installed but never-configured client is given the same one-click
+        configuration, using the gateway's global key and the first current
+        model. This is what makes enabling a third-party upstream automatic
+        instead of leaving the operator to discover a stale picker later.
+        """
+        if not self._agents_client_allowed():
+            return {"available": False,
+                    "reason": "agent config is only available from the "
+                              "machine running the gateway",
+                    "results": []}
+        try:
+            wb_agents = agents_module()
+            state = wb_agents.integration_state(ACCOUNTS_DIR)
+            overview = wb_agents.overview(ACCOUNTS_DIR)
+            models = self._agents_models_for(None)
+            ids = [item.get("id") for item in models
+                   if isinstance(item, dict) and item.get("id")]
+            if not ids:
+                return {"available": True, "models": 0,
+                        "results": [], "warning": "no models available"}
+
+            # First re-apply the clients this gateway already knows how to
+            # restore. That path preserves each client's original base URL,
+            # key binding and home directory.
+            reapply = self._agents_reapply_for_realm(restart=restart)
+            results = list(reapply.get("results") or [])
+            configured = set(state)
+
+            warnings = []
+            try:
+                api_key = self._agents_resolve_key({"key_id": ""}, warnings)
+            except Exception:
+                api_key = None
+            if not api_key:
+                if auth_required():
+                    results.append({"skipped": "no gateway key available"})
+                    return {"available": True, "models": len(ids),
+                            "results": results, "warnings": warnings}
+                api_key = "wb-local"
+
+            base_url = self._agents_base_url_hint()
+            default_model = ids[0]
+            for client_id, client in sorted(overview.items()):
+                if client_id in configured:
+                    continue
+                if not client.get("installed"):
+                    continue
+                try:
+                    written = wb_agents.integrate(
+                        ACCOUNTS_DIR, client_id, base_url, api_key,
+                        model=default_model, models=models, key_id=None)
+                    entry = {"client": client_id,
+                             "configured": True,
+                             "rewritten": len(written.get("files") or [])}
+                    if restart is not False:
+                        entry["restart"] = self._agents_maybe_restart(
+                            wb_agents, client_id, restart)
+                    results.append(entry)
+                except Exception as exc:
+                    results.append({"client": client_id, "error": str(exc)})
+            if results:
+                log("agent configs synchronized for the current upstream",
+                    tag="agents")
+            return {"available": True, "models": len(ids),
+                    "results": results, "warnings": warnings}
         except Exception as exc:
             return {"available": True, "error": str(exc), "results": []}
 
@@ -18558,6 +18681,15 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 reattached.append(enriched.get(mid) or {"id": mid})
             models = reattached
+        # The panel may still be holding the pre-switch list in memory. When a
+        # third-party exit is active, the backend is authoritative: never
+        # write the old WorkBuddy catalog into a client after the switch.
+        if thirdparty_enabled():
+            models = self._agents_models_for(key_realm)
+            if not models:
+                return self._error(
+                    409, "third-party upstream has no models; "
+                         "test the connection first", "invalid_request_error")
         if not isinstance(models, list):
             return self._error(400, "models must be a list",
                                "invalid_request_error")
@@ -18581,6 +18713,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             specs = {}
         cleaned_models = enrich_agent_models(cleaned_models, specs)
+        if thirdparty_enabled():
+            model = self._agents_choose_model(model, cleaned_models)
         warnings = []
         try:
             api_key = self._agents_resolve_key(payload, warnings)

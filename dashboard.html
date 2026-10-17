@@ -1943,7 +1943,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '连接信息': 'Connection Info',
     '本机客户端': 'Local Clients',
     '第三方上游': 'Third-Party Upstream',
-    '将网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已接入的客户端仍连网关，不受影响，但需要重新「一键配置」才会拿到新模型。': 'Temporarily route the gateway at another OpenAI-compatible service. While on, the proxy talks to the URL below instead of workbuddy; configured clients still point at the gateway and are unaffected, but must re-run One-click Setup to pick up the new models.',
+    '将网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已配置的客户端会自动重新应用，检测到但尚未配置的客户端会自动一键配置。': 'Temporarily route the gateway at another OpenAI-compatible service. While on, the proxy talks to the URL below instead of workbuddy; configured clients are re-applied automatically, and detected but unconfigured clients are set up automatically.',
     '测试连接 / 刷新模型': 'Test connection / refresh models',
     '启用': 'Enable',
     '关闭': 'Disable',
@@ -4564,7 +4564,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div>
           <h2 style="margin:0">第三方上游 <em id="tpState"></em></h2>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">把网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已接入的客户端仍连网关，不受影响，但需要重新「一键配置」才会拿到新模型。</div>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">把网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已配置的客户端会自动重新应用，检测到但尚未配置的客户端会自动一键配置。</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="sec mini" onclick="tpProbe()">测试连接 / 刷新模型</button>
@@ -11744,7 +11744,7 @@ function tpRender(){
       models.innerHTML = '该服务当前模型 <b>' + n + '</b> 个：'
         + (TP.models.slice(0, 12).map(m => '<span class="mono">' + esc(m) + '</span>').join('、 '))
         + (n > 12 ? ' …' : '')
-        + '<div style="margin-top:4px">重新「一键配置」客户端，让它写入新模型。</div>';
+        + '<div style="margin-top:4px">启用时会自动同步已配置和已检测到的本地客户端。</div>';
     } else if(TP.enabled){
       models.textContent = '尚未取到模型列表，点「测试连接 / 刷新模型」。';
     } else {
@@ -11771,7 +11771,16 @@ async function tpSave(){
     }
     TP = r;
     tpRender();
-    toast('已切换到第三方上游，正在重新拉取模型', 'ok');
+    if(key) key.value = '';
+    const sync = (r && r.agents) || {};
+    const synced = (sync.results || []).filter(x => x && x.client && !x.error && !x.skipped).length;
+    await loadAgents();
+    if(sync.warning){
+      toast('已启用，但客户端未自动同步: ' + sync.warning, 'warn');
+    } else {
+      toast(synced ? ('已启用，并自动同步了 ' + synced + ' 个客户端')
+                   : '已切换到第三方上游', 'ok');
+    }
     return r;
   } catch(e) {
     if(!isAuthError(e)) toast('启用失败: ' + e.message, 'bad');
@@ -11789,7 +11798,11 @@ async function tpToggle(){
       }
       TP = r;
       tpRender();
-      toast('已关闭，恢复反代到 workbuddy；客户端模型会在下次一键配置时恢复', 'ok');
+      const sync = (r && r.agents) || {};
+      const synced = (sync.results || []).filter(x => x && x.client && !x.error && !x.skipped).length;
+      await loadAgents();
+      toast(synced ? ('已关闭，并自动恢复 ' + synced + ' 个客户端')
+                   : '已关闭，恢复反代到 workbuddy', 'ok');
     } catch(e) {
       if(!isAuthError(e)) toast('关闭失败: ' + e.message, 'bad');
     }
