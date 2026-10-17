@@ -1,5 +1,23 @@
 # 版本更新记录
 
+## v0.1.16 — 第三方上游响应记录兼容修复
+
+部分第三方模型（例如 AMD 的 `MiniCPM-V-4.7-1B`）请求本身成功返回，但网关在
+记录用量时仍访问 WorkBuddy 账号对象的 `uid`，导致
+`AttributeError: 'NoneType' object has no attribute 'uid'`。
+
+### 修复
+
+- 第三方上游的 Chat、Responses 和 Anthropic 响应记录改为安全读取账号字段。
+- 第三方请求的 `account=None` 不再导致响应处理异常。
+- WorkBuddy 的账号对象仍走原来的记录路径，账号、用量、故障熔断等行为不变。
+
+### 验证
+
+- `MiniCPM-V-4.7-1B` 直连 AMD Token Factory 返回 HTTP 200。
+- 新增 Chat 与 Responses 两条 `account=None` 回归测试。
+- 完整测试套件通过。
+
 ## v0.1.15 — 第三方上游下拉框与自动刷新修复
 
 v0.1.14 的默认模型下拉框使用了错误变量名，导致测试连接、启用和重新读取第三方

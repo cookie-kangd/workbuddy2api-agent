@@ -255,6 +255,53 @@ try:
     check("the panel auto-refreshes models after URL and key input",
           "tpScheduleAutoProbe" in dashboard
           and "addEventListener('input', tpScheduleAutoProbe)" in dashboard)
+
+    print()
+    print("[9] third-party responses with account=None can be accounted")
+    captured = []
+
+    class FakeUpstream:
+        def close(self):
+            pass
+
+    original_aggregate = proxy.aggregate_stream
+    original_record_usage = proxy.record_upstream_usage
+    proxy.aggregate_stream = lambda upstream, model, holder: {
+        "choices": [{"message": {"role": "assistant", "content": "OK"}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        "first_chunk_at": None,
+    }
+    proxy.record_upstream_usage = lambda *args, **kwargs: captured.append(kwargs)
+    try:
+        code, result = h._chat_nonstream_response(
+            FakeUpstream(), "MiniCPM-V-4.7-1B", "fp", None, time.time())
+    finally:
+        proxy.aggregate_stream = original_aggregate
+    check("chat response succeeds with a third-party account=None",
+          code == 200 and result.get("choices"), (code, result))
+    check("usage recording receives account=None instead of crashing",
+          captured and captured[0].get("account") is None, captured)
+
+    original_chat_to_response = proxy.chat_to_response
+    proxy.aggregate_stream = lambda upstream, model, holder: {
+        "choices": [{"message": {"role": "assistant", "content": "OK"}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        "first_chunk_at": None,
+    }
+    proxy.chat_to_response = lambda *args, **kwargs: {
+        "object": "response", "status": "completed",
+        "output": [{"type": "message", "content": []}],
+    }
+    try:
+        code, result = h._responses_nonstream_response(
+            FakeUpstream(), "MiniCPM-V-4.7-1B", set(), {}, "fp", None,
+            time.time(), base_body={})
+    finally:
+        proxy.chat_to_response = original_chat_to_response
+        proxy.aggregate_stream = original_aggregate
+        proxy.record_upstream_usage = original_record_usage
+    check("responses path succeeds with a third-party account=None",
+          code == 200 and result.get("object") == "response", (code, result))
 finally:
     proxy.ACCOUNTS_DIR = orig_accounts
     proxy.API_KEY = orig_api_key

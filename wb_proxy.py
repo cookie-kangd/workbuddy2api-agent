@@ -10176,7 +10176,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.15",
+        "version": "0.1.16",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16430,7 +16430,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.15"
+    server_version = "wb-proxy/0.1.16"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -19885,13 +19885,13 @@ class Handler(BaseHTTPRequestHandler):
             record_upstream_usage(upstream, model, holder.get("usage"), stream=True, elapsed_ms=wall,
                          ttft_ms=first_ms,
                          gen_ms=(wall - first_ms) if first_ms is not None else None,
-                         fp=fp, account=account.uid,
+                         fp=fp, account=getattr(account, "uid", None),
                          outcome="client_aborted", key=self._key_id(), effort=effort)
             return
         except Exception as exc:
             wall = int((time.time() - t_start) * 1000)
             record_error(model, 502, "stream aborted: %s" % exc,
-                         elapsed_ms=wall, account=account.uid,
+                         elapsed_ms=wall, account=getattr(account, "uid", None),
                          usage=holder.get("usage"), stream=True,
                          ttft_ms=first_ms,
                          gen_ms=(wall - first_ms) if first_ms is not None else None,
@@ -19914,7 +19914,7 @@ class Handler(BaseHTTPRequestHandler):
         record_upstream_usage(upstream, model, holder.get("usage"), stream=True, elapsed_ms=wall,
                      ttft_ms=first_ms,
                      gen_ms=(wall - first_ms) if first_ms is not None else None,
-                     fp=fp, account=account.uid, key=self._key_id(), effort=effort)
+                     fp=fp, account=getattr(account, "uid", None), key=self._key_id(), effort=effort)
         return
 
     def _responses_nonstream_response(self, upstream, model, custom_names, request_meta, fp, account, t_start, namespace_map=None, base_body=None, session_key=None, realm=None, effort=None):
@@ -19932,7 +19932,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 record_error(model, 502, str(exc),
                              elapsed_ms=int((time.time() - t_start) * 1000),
-                             account=account.uid, key=self._key_id())
+                             account=getattr(account, "uid", None), key=self._key_id())
                 return self._error(502, f"upstream stream error: {exc}")
             calls = internal_calls_from_chat(chat_obj, web_tools=web_tools)
             if not calls:
@@ -19952,14 +19952,14 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 record_error(model, 502, "web tool follow-up failed: %s" % exc,
                              elapsed_ms=int((time.time() - t_start) * 1000),
-                             account=account.uid, key=self._key_id())
+                             account=getattr(account, "uid", None), key=self._key_id())
                 return self._error(502, "web tool follow-up failed: %s" % exc)
             sources = holder.get("web_sources") or sources
         wall = int((time.time() - t_start) * 1000)
         result = chat_to_response(chat_obj, model, custom_names, request_meta, namespace_map,
                                   sources=sources)
         record_upstream_usage(upstream, model, chat_obj.get("usage"), stream=False, elapsed_ms=wall, fp=fp,
-                     account=account.uid, key=self._key_id(), effort=effort)
+                     account=getattr(account, "uid", None), key=self._key_id(), effort=effort)
         return self._json(200, result)
 
     def _handle_messages_count_tokens(self, payload):
@@ -20071,12 +20071,12 @@ class Handler(BaseHTTPRequestHandler):
             result = chat_to_messages(chat_obj)
             wall = int((time.time() - t_start) * 1000)
             record_upstream_usage(upstream, model, chat_obj.get("usage"), stream=False, elapsed_ms=wall,
-                         fp=fp, account=account.uid, key=self._key_id(), effort=effort)
+                         fp=fp, account=getattr(account, "uid", None), key=self._key_id(), effort=effort)
             return self._json(200, result)
         except Exception as exc:
             wall = int((time.time() - t_start) * 1000)
             record_error(model, 502, "messages upstream error: %s" % exc,
-                         elapsed_ms=wall, account=account.uid, key=self._key_id())
+                         elapsed_ms=wall, account=getattr(account, "uid", None), key=self._key_id())
             return self._anthropic_error(502, "upstream stream error: %s" % exc)
         finally:
             try:
@@ -20113,13 +20113,13 @@ class Handler(BaseHTTPRequestHandler):
             record_upstream_usage(upstream, model, holder.get("usage"), stream=True, elapsed_ms=wall,
                          ttft_ms=first_ms,
                          gen_ms=(wall - first_ms) if first_ms is not None else None,
-                         fp=fp, account=account.uid,
+                         fp=fp, account=getattr(account, "uid", None),
                          outcome="client_aborted", key=self._key_id(), effort=effort)
             return
         except Exception as exc:
             wall = int((time.time() - t_start) * 1000)
             record_error(model, 502, "messages stream aborted: %s" % exc,
-                         elapsed_ms=wall, account=account.uid,
+                         elapsed_ms=wall, account=getattr(account, "uid", None),
                          usage=holder.get("usage"), stream=True,
                          ttft_ms=first_ms, fp=fp, outcome="upstream_aborted",
                          key=self._key_id())
@@ -20140,7 +20140,7 @@ class Handler(BaseHTTPRequestHandler):
         record_upstream_usage(upstream, model, holder.get("usage"), stream=True, elapsed_ms=wall,
                      ttft_ms=first_ms,
                      gen_ms=(wall - first_ms) if first_ms is not None else None,
-                     fp=fp, account=account.uid, key=self._key_id(), effort=effort)
+                     fp=fp, account=getattr(account, "uid", None), key=self._key_id(), effort=effort)
         return
 
     def do_POST(self):
@@ -20496,7 +20496,7 @@ class Handler(BaseHTTPRequestHandler):
                 record_upstream_usage(upstream, model, last_usage, stream=True,
                              elapsed_ms=wall, ttft_ms=first_ms,
                              gen_ms=(wall - first_ms) if first_ms is not None else None,
-                             fp=fp, account=account.uid,
+                             fp=fp, account=getattr(account, "uid", None),
                              outcome="client_aborted", key=self._key_id(), effort=effort)
                 return
             except Exception as exc:
@@ -20505,7 +20505,7 @@ class Handler(BaseHTTPRequestHandler):
                 # terminal marker, and the traceback reached the HTTP layer.
                 wall = int((time.time() - t_start) * 1000)
                 record_error(model, 502, "stream aborted: %s" % exc,
-                             elapsed_ms=wall, account=account.uid,
+                             elapsed_ms=wall, account=getattr(account, "uid", None),
                             usage=last_usage, stream=True, ttft_ms=first_ms,
                             gen_ms=(wall - first_ms) if first_ms is not None else None,
                              fp=fp, outcome="upstream_aborted", key=self._key_id())
@@ -20539,7 +20539,7 @@ class Handler(BaseHTTPRequestHandler):
             outcome = "failed" if pending_finish == "error" else "completed"
             if outcome == "failed":
                 record_error(getattr(upstream, "_wb_billed_model", model), 502, "upstream stream finished with error",
-                             elapsed_ms=wall, account=account.uid,
+                             elapsed_ms=wall, account=getattr(account, "uid", None),
                              usage=last_usage, stream=True, ttft_ms=first_ms,
                              gen_ms=(wall - first_ms) if first_ms is not None else None,
                              fp=fp, outcome="failed", key=self._key_id())
@@ -20547,7 +20547,7 @@ class Handler(BaseHTTPRequestHandler):
                 record_upstream_usage(upstream, model, last_usage, stream=True,
                              elapsed_ms=wall, ttft_ms=first_ms,
                              gen_ms=(wall - first_ms) if first_ms is not None else None,
-                             fp=fp, account=account.uid, key=self._key_id(), effort=effort)
+                             fp=fp, account=getattr(account, "uid", None), key=self._key_id(), effort=effort)
             return
 
     def _chat_nonstream_response(self, upstream, model, fp, account, t_start, effort=None):
@@ -20555,7 +20555,7 @@ class Handler(BaseHTTPRequestHandler):
             result = aggregate_stream(upstream, model, None)
         except Exception as exc:
             record_error(model, 502, str(exc), elapsed_ms=int((time.time() - t_start) * 1000),
-                         account=account.uid, key=self._key_id())
+                         account=getattr(account, "uid", None), key=self._key_id())
             return self._error(502, f"upstream stream error: {exc}")
         wall = int((time.time() - t_start) * 1000)
         first_at = result.get("first_chunk_at")
@@ -20564,7 +20564,7 @@ class Handler(BaseHTTPRequestHandler):
         record_upstream_usage(upstream, model, result.get("usage"), stream=False,
                      elapsed_ms=wall, ttft_ms=first_ms,
                      gen_ms=(wall - first_ms) if first_ms is not None else None,
-                     fp=fp, account=account.uid, key=self._key_id(), effort=effort)
+                     fp=fp, account=getattr(account, "uid", None), key=self._key_id(), effort=effort)
         return self._json(200, result)
 
 def main():
