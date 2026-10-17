@@ -445,6 +445,33 @@ jobs:
             gh release create "$TAG" --draft $FLAGS --title "$TITLE" --notes-file dist/release-body.md
           fi
           gh release upload "$TAG" dist/*.zip dist/SHA256SUMS --clobber
+
+      - name: Keep only the newest release visible
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The releases page lists every release ever published, which for a
+          # fork shipping one Windows ZIP reads as a wall of near-identical
+          # artifacts. Tags stay (they are the history) and every old release
+          # stays downloadable - only the "Latest" marker moves. Marking older
+          # full releases as prereleases leaves exactly one current version for
+          # the releases page and for update-wb-proxy.ps1 (which ignores
+          # prereleases), so nobody can "update" to a superseded build.
+          if [ "${{ needs.version.outputs.rehearsal }}" = "true" ]; then
+            echo "rehearsal tag: older releases keep their latest flag"
+            exit 0
+          fi
+          NEWEST="$TAG"
+          for old in $(gh release list --json tagName,isPrerelease,isDraft \
+                          --jq '.[] | select(.isDraft == false and .isPrerelease == false)
+                                | .tagName'); do
+            [ "$old" = "$NEWEST" ] && continue
+            echo "superseding $old (stays downloadable, no longer Latest)"
+            gh release edit "$old" --prerelease --latest=false
+          done
+          gh release list --limit 6 --json tagName,isPrerelease,isDraft \
+            --jq '.[] | "\(.tagName) draft=\(.isDraft) pre=\(.isPrerelease)"'
       - name: Prove the release is still a draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

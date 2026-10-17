@@ -1,5 +1,17 @@
 # 版本更新记录
 
+## 发布策略调整（未发版）
+
+- **Releases 页只显示最新版本**：此前每个版本都作为正式 release 挂在 Releases 页，
+  对一个只发一个 Windows 便携包的项目来说就是一整屏几乎一样的产物。现在新版本发布
+  时，工作流会把更早的正式 release 自动标记为 prerelease——tag 全部保留（历史仍在），
+  旧版本仍可下载（不会有人再「升级」到被取代的版本，`update-wb-proxy.ps1` 忽略
+  prerelease），Releases 页与 Latest 标记只指向当前版本。
+- **release 门禁同步收紧**：新增一条断言，钉住「supersede」步骤只做 demote
+  （`--prerelease --latest=false`），不会变成新的发布路径。
+
+---
+
 ## v0.1.7 — 修复：一键配置仍写入全出口清单
 
 v0.1.6 只改了一半：看板的模型**下拉**会按所选 Key 的出口过滤了，但「一键配置」提交

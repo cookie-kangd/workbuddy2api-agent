@@ -636,11 +636,28 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--draft", self.text)
         self.assertNotIn("--draft=false", self.text)
         # Every release mutation must stay on the draft side: `gh release edit`
-        # without --draft, or `gh release create` without it, publishes.
+        # without --draft, or `gh release create` without it, publishes. The one
+        # exception is the "supersede older releases" step, which only ever
+        # demotes an already-published release to prerelease (never creates or
+        # publishes one) - its job is to keep exactly one Latest.
         for line in self.text.splitlines():
             stripped = line.strip()
             if stripped.startswith("gh release edit") or stripped.startswith("gh release create"):
+                if "--prerelease" in stripped:
+                    continue        # the supersede step, pinned separately
                 self.assertIn("--draft", stripped, stripped)
+
+    def test_the_supersede_step_only_demotes_never_publishes(self):
+        # The releases list is trimmed by marking older full releases as
+        # prereleases. That command must never carry --draft (it edits an
+        # existing published release) and must never create a release either,
+        # or a supersede step could become a publish path.
+        for line in self.text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("gh release edit") and "--prerelease" in stripped:
+                self.assertNotIn("--draft=false", stripped, stripped)
+                self.assertIn("--latest=false", stripped, stripped)
+        self.assertIn("--latest=false", self.text)
 
     def test_tag_must_match_the_source_version(self):
         # The gate reads both source strings and compares the tag against them,
