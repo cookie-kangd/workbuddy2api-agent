@@ -5908,10 +5908,24 @@ def upstream_totals(realm=None, range=None, since=None, until=None):
     totals = {}
 
     def fold(row):
-        # Same realm test _fold_usage_snapshot applies first, so this answers
-        # over exactly the rows the snapshot views describe.
-        if r and row.get("realm") != r:
+        # Same realm predicate _fold_usage_snapshot applies first, so this
+        # answers over exactly the rows the snapshot views describe. A row
+        # without a realm belongs to the current exit, which is why a raw
+        # != test would drop rows the snapshot counts.
+        if r and not row_matches_realm(row, r):
             return
+        # Same window test the fold applies, so a bound of 0 means what it
+        # means there rather than "keep nothing after the epoch".
+        at = row.get("at") or 0
+        if lo and at < lo:
+            return
+        if hi and at > hi:
+            return
+        # Same outcome rule: only a completed row contributes requests and
+        # tokens; anything else is counted as an error and nothing more. A
+        # split that disagreed with the snapshot on this would show a third
+        # party spending tokens the KPI cards do not count.
+        outcome = row_outcome(row)
         name = str(row.get("upstream") or "workbuddy")
         bucket = totals.get(name)
         if bucket is None:
@@ -5920,9 +5934,15 @@ def upstream_totals(realm=None, range=None, since=None, until=None):
                                      "completion_tokens": 0,
                                      "reasoning_tokens": 0,
                                      "cached_tokens": 0, "total_tokens": 0}
-        bucket["requests"] += 1
-        if row.get("outcome") == "failed" or row.get("status"):
+        # Only a completed row counts as a request (and carries tokens); every
+        # other outcome is an error row, exactly as the snapshot folds it.
+        if outcome != "completed":
             bucket["errors"] += 1
+            return
+        bucket["requests"] += 1
+        if outcome != "completed":
+            bucket["errors"] += 1
+            return
         for field in ("prompt_tokens", "completion_tokens",
                       "reasoning_tokens", "cached_tokens", "total_tokens"):
             try:
