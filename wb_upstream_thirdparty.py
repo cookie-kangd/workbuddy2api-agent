@@ -221,4 +221,43 @@ def describe(accounts_dir):
         "models_at": profile["models_at"],
         "models_error": profile["models_error"],
         "chat_url": normalise_chat_url(profile["base_url"]) if profile["base_url"] else "",
+        "vendor": vendor_label(profile["base_url"]),
     }
+
+
+#: Hostnames of services worth naming in the panel. A request billed by one of
+#: these reads as its vendor rather than as "其他 (host)".
+VENDOR_HOSTS = (
+    ("developer.amd.com.cn", "AMD"),
+    ("api.deepseek.com", "DeepSeek"),
+    ("open.bigmodel.cn", "智谱 GLM"),
+    ("api.moonshot.cn", "Moonshot"),
+    ("api.minimax.chat", "MiniMax"),
+    ("dashscope.aliyuncs.com", "阿里通义"),
+    ("api.openai.com", "OpenAI"),
+    ("generativelanguage.googleapis.com", "Google Gemini"),
+    ("openrouter.ai", "OpenRouter"),
+    ("api.anthropic.com", "Anthropic"),
+    ("api.siliconflow.cn", "硅基流动"),
+    ("v3.cuiyuanxiaoyuan.com", "Cuiyuanxiaoyuan"),
+)
+
+
+def vendor_label(base_url):
+    """A short name for whoever the endpoint belongs to.
+
+    Known hosts are named by their vendor; anything else falls back to the
+    host itself, prefixed with 其他 so an unrecognised endpoint is visibly
+    unrecognised rather than silently looking like a first-party source.
+    """
+    url = str(base_url or "").strip().lower()
+    if not url:
+        return ""
+    host = re.sub(r"^[a-z]+://", "", url).split("/")[0].split("@")[-1]
+    host = host.split(":")[0]
+    for needle, name in VENDOR_HOSTS:
+        if host == needle or host.endswith("." + needle):
+            return name
+    if host.startswith("www."):
+        host = host[4:]
+    return "其他 (%s)" % host

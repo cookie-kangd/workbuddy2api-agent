@@ -3735,6 +3735,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <div class="k"><span class="ic">◆</span>TOKEN 消耗 <span class="delta" id="deltaTokens"></span></div>
       <div class="v" id="kTokens">—</div>
       <div class="s" id="kTokensSub">—</div>
+      <!-- 上游拆分：workbuddy 与第三方各占多少 token。没有第三方流量的部署这行是空的。 -->
+      <div class="s" id="kUpstreamSplit" style="margin-top:2px"></div>
       <div class="tokflow" id="kTokensFlow"></div>
       <canvas class="spark" id="sparkTokens"></canvas>
     </div>
@@ -8634,6 +8636,13 @@ async function refreshInner(gen){
   };
   const countEl = document.getElementById('recentCount');
   if(countEl) countEl.textContent = '(第 ' + RECENT_PAGE + ' 页 / 共 ' + fmt(total) + ' 条)';
+  // 上游来源：这次请求是 workbuddy 的账号出的，还是第三方出口出的。
+  // 历史行没有这个字段（早于 v0.1.11），一律按 workbuddy 显示。
+  const upstreamBadge = r => {
+    const u = String(r.upstream || 'workbuddy');
+    if(u === 'workbuddy') return '<span class="badge s">workbuddy</span>';
+    return '<span class="badge" style="background:rgba(217,160,60,.18);color:#d9a03c" title="第三方上游">' + esc(u) + '</span>';
+  };
   // 推理强度：这次请求实际跑在哪个档位（网关写入 usage 行时的 reasoning_effort）。
   // v1.6.16 拆分为独立「推理强度」列展示。
   // 账号列显示昵称：uid -> 昵称取自 /usage 的 accounts_map（当前账号池）。
@@ -8661,7 +8670,7 @@ async function refreshInner(gen){
   lastRecentFp = recentFp;
   COST_TIP_ROWS.clear();
   document.getElementById('recent').innerHTML = rows.length ?
-    '<table class="data-cards"><thead><tr><th>时间</th><th>模型</th><th>推理强度</th><th>账号</th><th>模式</th><th>结果</th><th>耗时</th><th>首字</th><th>速度</th><th>输入</th><th>输出</th><th>思考</th><th>缓存</th><th>总 token</th><th>积分</th><th class="pricing-col" style="color:var(--warn)">估算价格</th></tr></thead><tbody>'
+    '<table class="data-cards"><thead><tr><th>时间</th><th>模型</th><th>上游</th><th>推理强度</th><th>账号</th><th>模式</th><th>结果</th><th>耗时</th><th>首字</th><th>速度</th><th>输入</th><th>输出</th><th>思考</th><th>缓存</th><th>总 token</th><th>积分</th><th class="pricing-col" style="color:var(--warn)">估算价格</th></tr></thead><tbody>'
     + rows.map((r, i) => {
         // 关闭时不登记悬停明细，也不挂 data-cost-key：列还在（观感不变），
         // 但没有任何可解释的价格，省掉整张表的明细构建与 hover 开销。
@@ -8670,6 +8679,7 @@ async function refreshInner(gen){
         return '<tr>'
         + '<td class="mono" data-label="时间">' + esc((r.iso||'').replace('T',' ').slice(5)) + '</td>'
         + '<td class="mono" data-label="模型">' + esc(r.model) + '</td>'
+        + '<td data-label="上游">' + upstreamBadge(r) + '</td>'
         + '<td data-label="推理强度">' + (r.reasoning_effort ? ('<span class="badge-effort">' + esc(r.reasoning_effort) + '</span>') : '<span style="color:var(--dim)">—</span>') + '</td>'
         + '<td class="mono" style="font-size:11px;color:var(--dim)" data-label="账号" title="' + esc(r.account||'') + '">' + esc(acctName(r.account)) + '</td>'
         + '<td data-label="模式"><span class="badge ' + (r.stream?'s':'') + '">' + (r.stream?'流式':'非流式') + '</span></td>'
@@ -13499,6 +13509,9 @@ async function loadRange(){
     state.analytics = analytics;
     state.series = series;
     prevSummary = prev;
+    // 上游拆分与 KPI 同一套窗口参数：两份数字必须描述同一段日志。
+    try { state.upstreams = await api(`/usage/upstreams?realm=all&${rp}`, POLL_READ); }
+    catch(e){ console.error('upstreams failed', e); }
   } catch(e){
     console.error('load range failed', e);
   }
@@ -13546,6 +13559,21 @@ function renderKpis(){
   const tot = parts.reduce((s,x)=>s+(x[1]||0),0) || 1;
   $('kTokensFlow').innerHTML = parts.map(([n,v,c]) =>
     `<i style="width:${Math.max(1.5,(v||0)/tot*100)}%;background:${c}" title="${n} ${fmtCompact(v)}"></i>`).join('');
+
+  // ①′ 上游拆分：第三方出口不花 workbuddy 的积分，所以总 token 要能说清
+  // 各走多少。没有第三方流量时这行不渲染（deployment 不必为它付开销）。
+  const upEl = $('kUpstreamSplit');
+  if(upEl){
+    const ups = (state.upstreams && state.upstreams.data) || [];
+    if(ups.length > 1 || (ups.length === 1 && ups[0].upstream !== 'workbuddy')){
+      upEl.innerHTML = ups.map(u =>
+        `<span style="display:inline-block;margin-right:10px">`
+        + (u.upstream === 'workbuddy' ? '<span class="badge s">workbuddy</span>' : '<span class="badge" style="background:rgba(217,160,60,.18);color:#d9a03c">' + esc(u.upstream) + '</span>')
+        + ' ' + fmtCompact(u.total_tokens) + '</span>').join('');
+    } else {
+      upEl.innerHTML = '';
+    }
+  }
 
   // ② 请求
   const okRate = w.requests ? (w.requests - w.errors) / w.requests * 100 : 100;

@@ -1,5 +1,29 @@
 # 版本更新记录
 
+## v0.1.11 — 看板按上游来源拆分用量
+
+第三方上游不花 workbuddy 的积分，所以总 token 必须能说清各走多少；请求流水也
+新增「上游」一列。
+
+### 变更
+
+- **请求流水新增「上游」列**：`workbuddy` 或第三方出口的厂商名（AMD、
+  DeepSeek、智谱 GLM、Moonshot、MiniMax、阿里通义、OpenAI、OpenRouter、
+  Anthropic、硅基流动）；识别不出的显示 `其他 (主机名)`——看不出来就当看不出来，
+  不冒充第一方来源。历史行没有这个字段，一律按 workbuddy 显示。
+- **数据看板 KPI 卡新增上游拆分**：TOKEN 卡下面一行，按同一套窗口参数显示各来源
+  的 token 量；没有第三方流量时不渲染，不为它付开销。
+- **新接口 `GET /usage/upstreams`**：与 `/usage`、`/usage/analytics` 共享窗口解析
+  与 TTL 缓存，面板按原来的节奏轮询即可，不会多一次全文件扫描。
+
+### 厂商识别
+
+按主机名识别（含子域名），例如 `developer.amd.com.cn/radeon/api/v1` 显示为
+**AMD**；不在名单里的显示 `其他 (主机名)`。名单见
+`wb_upstream_thirdparty.VENDOR_HOSTS`，可按需自行扩充。
+
+---
+
 ## v0.1.10 — 第三方上游（智能体配置新增卡片）
 
 「智能体配置」页新增「第三方上游」卡片：填一个 Base URL + API Key，就能把网关

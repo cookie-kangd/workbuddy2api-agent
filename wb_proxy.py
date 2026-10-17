@@ -949,7 +949,7 @@ def _best_cached_tokens(usage):
 
 def record_usage(model, usage, stream=None, elapsed_ms=None, ttft_ms=None, gen_ms=None, fp=None,
                 account=None, outcome="completed", key=None, effort=None,
-                requested_model=None):
+                requested_model=None, upstream=None):
     """Record one finished request as exactly one JSONL row.
 
     A request without a usage block still gets a row (flagged usage_missing):
@@ -970,6 +970,11 @@ def record_usage(model, usage, stream=None, elapsed_ms=None, ttft_ms=None, gen_m
     build_upstream_body(). It is written only when the model has one: a model
     without reasoning controls has nothing to report, and rows written before
     this field existed cannot be told apart from it anyway.
+
+    upstream names the service the request was billed by - "workbuddy", or the
+    third-party endpoint's label. Written on every row so the panel can split
+    spend by source: a request that went to a third-party exit is not spending
+    WorkBuddy credits, and showing it in the same column would overstate them.
     """
     fields = _extract_usage(usage) or {}
     usage_missing = not fields
@@ -999,6 +1004,10 @@ def record_usage(model, usage, stream=None, elapsed_ms=None, ttft_ms=None, gen_m
     # existed; the dashboard reports those as two different buckets, and a
     # missing field is the only evidence of the cutover that survives.
     row["key"] = key or ""
+    # Where the money came from. A third-party exit answers through a response
+    # object tagged by open_upstream_thirdparty(); everything else is the
+    # WorkBuddy exit (the default, and the value of every historical row).
+    row["upstream"] = str(upstream or "workbuddy")
     # The price policy this request is measured against, stored as a reference
     # so the table can be de-duplicated and swept. A row written before the
     # table existed has no reference and falls back to the timeline.
@@ -1031,7 +1040,13 @@ def record_usage(model, usage, stream=None, elapsed_ms=None, ttft_ms=None, gen_m
 def record_upstream_usage(upstream, requested_model, usage, **kwargs):
     """Record the model actually billed upstream, preserving the client alias."""
     billed_model = getattr(upstream, "_wb_billed_model", requested_model)
-    record_usage(billed_model, usage, requested_model=requested_model, **kwargs)
+    # The response object also carries which service answered (tagged by
+    # open_upstream_thirdparty); a WorkBuddy response carries nothing and the
+    # row defaults to "workbuddy". Deriving it here rather than at each of the
+    # nine call sites keeps a new one from silently mis-attributing spend.
+    source = getattr(upstream, "_wb_upstream_source", None)
+    record_usage(billed_model, usage, requested_model=requested_model,
+                 upstream=source, **kwargs)
 
 
 def _persist_usage(row, fail_label):
@@ -5867,6 +5882,67 @@ def _recent_backward_page(realm, page, limit):
     return matching[start_idx:end_idx]
 
 
+def upstream_totals(realm=None, range=None, since=None, until=None):
+    """Token / request totals per upstream source over a window.
+
+    A third-party exit does not spend WorkBuddy credits, so the dashboard's
+    totals must be able to say how much went where - otherwise "total tokens"
+    silently mixes two very different kinds of spend. Rows written before the
+    upstream field existed are WorkBuddy rows by definition, which is what
+    makes the default correct rather than merely convenient.
+
+    Shares the window resolution and TTL cache of the other readers, so the
+    panel polls this as often as the KPI cards without another file scan.
+    """
+    ttl = _STATS_TTL
+    _r2, lo, hi, cache_key = _usage_snapshot_scope(realm, range, since, until)
+    # The scope's key is a string; suffix it so this view's entry is distinct
+    # from the snapshot's even though both describe the same window.
+    cache_key = cache_key + "/upstream"
+    r = realm_scope(realm)
+    now = time.time()
+    with _snap_lock:
+        hit = _snap_cache.get(cache_key)
+        if hit is not None and (now - hit[0]) < ttl:
+            return hit[1]
+    totals = {}
+
+    def fold(row):
+        # Same realm test _fold_usage_snapshot applies first, so this answers
+        # over exactly the rows the snapshot views describe.
+        if r and row.get("realm") != r:
+            return
+        name = str(row.get("upstream") or "workbuddy")
+        bucket = totals.get(name)
+        if bucket is None:
+            bucket = totals[name] = {"upstream": name, "requests": 0,
+                                     "errors": 0, "prompt_tokens": 0,
+                                     "completion_tokens": 0,
+                                     "reasoning_tokens": 0,
+                                     "cached_tokens": 0, "total_tokens": 0}
+        bucket["requests"] += 1
+        if row.get("outcome") == "failed" or row.get("status"):
+            bucket["errors"] += 1
+        for field in ("prompt_tokens", "completion_tokens",
+                      "reasoning_tokens", "cached_tokens", "total_tokens"):
+            try:
+                bucket[field] += int(row.get(field) or 0)
+            except (TypeError, ValueError):
+                pass
+
+    # Same reader the snapshot views use, with the same window pre-filter, so
+    # this answers over exactly the rows those views show.
+    _scan_usage_from(0, fold, skip=lambda line: _line_outside_window(
+        line, lo or None, hi or None),
+        skip_raw=lambda raw: _line_outside_window_bytes(
+            raw, lo or None, hi or None))
+    out = {"object": "list",
+           "data": sorted(totals.values(), key=lambda b: -b["total_tokens"])}
+    with _snap_lock:
+        _snap_cache[cache_key] = (time.time(), out)
+    return out
+
+
 def recent_usage(limit=100, realm=None, page=1):
     """Paginated rows from the tail of the log (page 1 is latest).
 
@@ -10080,7 +10156,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.10",
+        "version": "0.1.11",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -13174,6 +13250,7 @@ def open_upstream_thirdparty(payload, prebuilt_body=None):
     records it as an external upstream.
     """
     tp = thirdparty_module()
+    profile = tp.load(ACCOUNTS_DIR)
     body = (prebuilt_body if prebuilt_body is not None
             else build_upstream_body(payload))
     effort = upstream_effort_of(body, str(payload.get("model") or ""))
@@ -13186,6 +13263,9 @@ def open_upstream_thirdparty(payload, prebuilt_body=None):
         raise
     except Exception as exc:
         raise LocalNetworkError(str(exc)[:200])
+    # Tag the response so record_upstream_usage() can attribute the spend to
+    # this endpoint rather than to WorkBuddy. Same channel as _wb_billed_model.
+    resp._wb_upstream_source = tp.vendor_label(profile["base_url"])
     return resp, None, effort
 
 
@@ -16286,7 +16366,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.10"
+    server_version = "wb-proxy/0.1.11"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -16802,6 +16882,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._get_v1_usage(query)
         if path == "/usage/recent":
             return self._get_usage_recent(query)
+        if path == "/usage/upstreams":
+            return self._get_usage_upstreams(query)
         if path == "/accounts/credits/detail":
             return self._get_account_credits_detail(query)
         if path == "/accounts/credits":
@@ -16944,6 +17026,19 @@ class Handler(BaseHTTPRequestHandler):
                                    since=req_since, until=req_until),
             lambda: usage_snapshot_etag(realm=req_realm, range=req_range,
                                         since=req_since, until=req_until))
+
+    def _get_usage_upstreams(self, query):
+        """Per-upstream token/request totals for the same window as the KPIs."""
+        if not self._authorized():
+            return
+        return self._json_cached(
+            200,
+            lambda: upstream_totals(
+                realm=query.get('realm', [None])[0] or CURRENT_REALM,
+                range=(query.get('range', [None])[0] or None),
+                since=query.get('since', [None])[0],
+                until=query.get('until', [None])[0]),
+            lambda: None)
 
     def _get_usage_recent(self, query):
         if not self._authorized():
