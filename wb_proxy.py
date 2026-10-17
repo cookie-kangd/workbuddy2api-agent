@@ -135,6 +135,30 @@ def agents_module():
     return _AGENTS_MODULE
 
 
+# ---- 第三方上游（把出口换成别人家的 OpenAI 兼容 API）----
+# 同样按需加载：绝大多数部署只用 WorkBuddy 自己的账号池，不为这个开关付内存。
+_THIRDPARTY_MODULE = None
+
+
+def thirdparty_module():
+    """按需 import wb_upstream_thirdparty。"""
+    global _THIRDPARTY_MODULE
+    if _THIRDPARTY_MODULE is None:
+        import wb_upstream_thirdparty
+        _THIRDPARTY_MODULE = wb_upstream_thirdparty
+    return _THIRDPARTY_MODULE
+
+
+def thirdparty_enabled():
+    """True when chat traffic should go to the third-party endpoint."""
+    try:
+        return thirdparty_module().is_enabled(ACCOUNTS_DIR)
+    except Exception:
+        # A broken/unreadable config must not take the gateway down; fall back
+        # to the WorkBuddy exit, which is the state the operator started in.
+        return False
+
+
 def server_deployment_form():
     """进程是否明显跑在服务端形态（容器 / OpenWrt）。
 
@@ -10056,7 +10080,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.9",
+        "version": "0.1.10",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -13140,8 +13164,40 @@ def _free_model_credit_fallback_enabled():
         "1", "true", "yes", "on")
 
 
+def open_upstream_thirdparty(payload, prebuilt_body=None):
+    """Send one chat-completions request to the third-party endpoint.
+
+    Returns the same 3-tuple as `open_upstream`'s success path - (response,
+    account, effort) - with account None because no WorkBuddy account was
+    involved. Callers already treat a None account as "no account to blame"
+    (the CLI and remote-machine paths do exactly that), and the usage row
+    records it as an external upstream.
+    """
+    tp = thirdparty_module()
+    body = (prebuilt_body if prebuilt_body is not None
+            else build_upstream_body(payload))
+    effort = upstream_effort_of(body, str(payload.get("model") or ""))
+    try:
+        resp = tp.open_chat(body, ACCOUNTS_DIR)
+    except urllib.error.HTTPError as exc:
+        # Re-raise untouched: the caller's HTTPError branch reads the body,
+        # records the error and answers with the upstream's own status, which
+        # is exactly what a third-party rejection should look like.
+        raise
+    except Exception as exc:
+        raise LocalNetworkError(str(exc)[:200])
+    return resp, None, effort
+
+
 def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=None,
                   allow_credit_fallback=True, allow_product_switch=True):
+    # A third-party exit replaces WorkBuddy wholesale: the endpoint already
+    # speaks the chat-completions dialect the translation layers expect, so
+    # the request goes there with the operator's own key and no account pool,
+    # realm or daily guard is consulted. Everything downstream (SSE framing,
+    # Responses/Anthropic translation, usage recording) is unchanged.
+    if thirdparty_enabled():
+        return open_upstream_thirdparty(payload, prebuilt_body=prebuilt_body)
     # Refresh the daily guards before picking. The scan underneath is
     # incremental and TTL-cached, so this is a stat() plus a cached dict on
     # the hot path, and an account parked by any of the guards is skipped
@@ -16230,7 +16286,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.9"
+    server_version = "wb-proxy/0.1.10"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -16796,6 +16852,8 @@ class Handler(BaseHTTPRequestHandler):
             # 看板启动时用这个廉价判定决定要不要显示入口：不 import
             # wb_agents、不做任何探测（issue #246）。
             return self._json(200, {"enabled": self._agents_client_allowed()})
+        if path == "/agents/thirdparty":
+            return self._get_thirdparty()
         return self._error(404, "not found", "invalid_request_error")
     def _get_dashboard(self):
         return self._dashboard()
@@ -16844,6 +16902,14 @@ class Handler(BaseHTTPRequestHandler):
     def _get_v1_models(self):
         if not self._authorized():
             return
+        # The third-party exit owns the model list too: advertising WorkBuddy's
+        # catalog while chat traffic goes somewhere else is exactly the
+        # mismatch that makes a client's picker useless.
+        if thirdparty_enabled():
+            models = thirdparty_module().model_ids(ACCOUNTS_DIR)
+            data = [model_entry(mid, {}) for mid in models]
+            return self._json(200, {"object": "list", "data": data,
+                                    "realm": "thirdparty"})
         req_realm = self._request_realm() or CURRENT_REALM
         try:
             entries = fetch_models(realm=req_realm)
@@ -17944,6 +18010,11 @@ class Handler(BaseHTTPRequestHandler):
         even when the upstream is down, so a failure here is simply a shorter
         list, never an error.
         """
+        # Same rule as /v1/models: with a third-party exit on, that endpoint's
+        # models are what a one-click apply must bake into the client.
+        if thirdparty_enabled():
+            return [{"id": mid} for mid in
+                    thirdparty_module().model_ids(ACCOUNTS_DIR)]
         return self._agents_models_for(None)
 
     def _agents_models_for(self, realm):
@@ -18079,6 +18150,68 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         return
+
+    def _get_thirdparty(self):
+        """Current third-party-upstream profile, never carrying the key."""
+        if not self._panel_ok():
+            return self._error(401, "panel password required", "invalid_request_error")
+        return self._json(200, thirdparty_module().describe(ACCOUNTS_DIR))
+
+    def _handle_thirdparty_save(self, payload):
+        """Store a profile and turn the third-party exit on.
+
+        Requires both fields: a URL without a key cannot authenticate, and a
+        key without a URL has nowhere to go. Enabling it is what actually
+        re-routes chat traffic, so this is also the switch's "on" action.
+        """
+        if not self._panel_ok():
+            return self._error(401, "panel password required", "invalid_request_error")
+        base_url = str(payload.get("base_url") or "").strip()
+        api_key = str(payload.get("api_key") or "").strip()
+        if not base_url or not api_key:
+            return self._error(400, "base_url and api_key are both required",
+                               "invalid_request_error")
+        if not re.match(r"^https?://", base_url):
+            return self._error(400, "base_url must start with http:// or https://",
+                               "invalid_request_error")
+        profile = thirdparty_module().save(
+            ACCOUNTS_DIR, {"enabled": True, "base_url": base_url, "api_key": api_key})
+        # Fetch the endpoint's models right away so the panel (and the next
+        # one-click apply) has a real list instead of an empty one.
+        models, error = thirdparty_module().probe_models(ACCOUNTS_DIR)
+        log("thirdparty upstream enabled: %s (%d models%s)"
+            % (profile["base_url"], len(models), ", " + error if error else ""),
+            tag="agents")
+        return self._json(200, thirdparty_module().describe(ACCOUNTS_DIR))
+
+    def _handle_thirdparty_probe(self, payload):
+        """Re-fetch the endpoint's model list, saving any credential first."""
+        if not self._panel_ok():
+            return self._error(401, "panel password required", "invalid_request_error")
+        base_url = str(payload.get("base_url") or "").strip()
+        api_key = str(payload.get("api_key") or "").strip()
+        if base_url or api_key:
+            thirdparty_module().save(
+                ACCOUNTS_DIR, {"enabled": thirdparty_module().is_enabled(ACCOUNTS_DIR),
+                               "base_url": base_url, "api_key": api_key})
+        models, error = thirdparty_module().probe_models(ACCOUNTS_DIR)
+        return self._json(200, {"models": models, "error": error,
+                                "profile": thirdparty_module().describe(ACCOUNTS_DIR)})
+
+    def _handle_thirdparty_disable(self, payload):
+        """Turn the third-party exit off, restoring the WorkBuddy exit.
+
+        The profile is kept (URL, key, cached models) so flipping it back on is
+        a single click - only `enabled` moves.
+        """
+        if not self._panel_ok():
+            return self._error(401, "panel password required", "invalid_request_error")
+        current = thirdparty_module().load(ACCOUNTS_DIR)
+        thirdparty_module().save(
+            ACCOUNTS_DIR, {"enabled": False, "base_url": current.get("base_url"),
+                           "api_key": current.get("api_key")})
+        log("thirdparty upstream disabled: back to the WorkBuddy exit", tag="agents")
+        return self._json(200, thirdparty_module().describe(ACCOUNTS_DIR))
 
     def _get_agents(self):
         if not self._agents_client_allowed():
@@ -19717,6 +19850,20 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/agents/apply":
                 return self._handle_agents_apply(payload)
             return self._handle_agents_restore(payload)
+        if path.startswith("/agents/thirdparty"):
+            # Panel-session only: this re-routes every chat request, so it is
+            # an admin action like the realm switch.
+            if not self._panel_ok():
+                return self._error(
+                    401, "panel password required", "invalid_request_error")
+            payload = self._payload_or_error()
+            if payload is None:
+                return
+            if path == "/agents/thirdparty/probe":
+                return self._handle_thirdparty_probe(payload)
+            if path == "/agents/thirdparty/disable":
+                return self._handle_thirdparty_disable(payload)
+            return self._handle_thirdparty_save(payload)
         if path in ("/panel/login", "/panel/logout", "/panel/password"):
             return self._handle_panel(path)
         if self._is_panel_route(path) and not self._panel_ok():

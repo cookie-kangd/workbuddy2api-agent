@@ -1942,6 +1942,14 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '还原原始配置': 'Restore Original Config',
     '连接信息': 'Connection Info',
     '本机客户端': 'Local Clients',
+    '第三方上游': 'Third-Party Upstream',
+    '将网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已接入的客户端仍连网关，不受影响，但需要重新「一键配置」才会拿到新模型。': 'Temporarily route the gateway at another OpenAI-compatible service. While on, the proxy talks to the URL below instead of workbuddy; configured clients still point at the gateway and are unaffected, but must re-run One-click Setup to pick up the new models.',
+    '测试连接 / 刷新模型': 'Test connection / refresh models',
+    '启用': 'Enable',
+    '关闭': 'Disable',
+    '(已启用)': '(enabled)',
+    '(未启用)': '(disabled)',
+    'Key 只保存在本机 accounts 目录，不会离开这台机器。启用时会立即读取该服务的模型列表并写入网关。': 'The key is stored only in this machine accounts directory and never leaves it. Enabling reads that service model list right away.',
     '其他客户端': 'Other Clients',
     '已配置': 'Configured',
     '已检测到': 'Detected',
@@ -4545,6 +4553,37 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         </div>
       </div>
       <div id="agentCardGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px"></div>
+    </section>
+
+    <!-- 第三方上游：把网关的出口临时换成别人家的 OpenAI 兼容 API。
+         启用后本机反代不再访问 workbuddy，改访问这里填的地址；智能体接入
+         不受影响（客户端连的是网关，不是上游）。关闭后恢复 workbuddy。 -->
+    <section>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <div>
+          <h2 style="margin:0">第三方上游 <em id="tpState"></em></h2>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">把网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已接入的客户端仍连网关，不受影响，但需要重新「一键配置」才会拿到新模型。</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="sec mini" onclick="tpProbe()">测试连接 / 刷新模型</button>
+          <button class="mini" id="tpToggleBtn" onclick="tpToggle()">启用</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1.6;min-width:260px">
+          <div style="font-size:12px;color:var(--dim);margin-bottom:4px">Base URL</div>
+          <input id="tpBaseUrl" type="text" placeholder="https://api.example.com/v1"
+                 style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:12px;color:var(--dim);margin-bottom:4px">API Key</div>
+          <input id="tpApiKey" type="password" placeholder="sk-..."
+                 style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin-top:10px">Key 只保存在本机 accounts 目录，不会离开这台机器。启用时会立即读取该服务的模型列表并写进网关。</div>
+      <div id="tpModels" style="font-size:12px;color:var(--dim);margin-top:8px"></div>
+      <div id="tpError" style="font-size:12px;color:var(--bad);margin-top:6px"></div>
     </section>
 
     <section>
@@ -11334,6 +11373,7 @@ async function loadAgents(showToast){
     // exit instead of always offering the global switch's models.
     AGENT_MODELS_BY_REALM = AGENTS_DATA.models_by_realm || {};
     AGENT_KEYS = AGENTS_DATA.keys || AGENTS_DATA.api_keys || [];
+    tpLoad();
     renderAgentConnForm();
     renderAgentCards();
     renderAgentManualUrls();
@@ -11649,6 +11689,129 @@ window.renderAgentCards = renderAgentCards;
 window.applyAgent = applyAgent;
 window.restoreAgent = restoreAgent;
 window.copyAgentUrl = copyAgentUrl;
+
+/* ---- 第三方上游（把网关出口换成别的 OpenAI 兼容服务）---- */
+let TP = null;
+
+async function tpLoad(){
+  try {
+    const r = await getJSON('/agents/thirdparty');
+    TP = r || {};
+    tpRender();
+  } catch(e) {
+    if(!isAuthError(e)) toast('第三方上游状态读取失败: ' + e.message, 'bad');
+  }
+}
+
+function tpRender(){
+  const st = document.getElementById('tpState');
+  const btn = document.getElementById('tpToggleBtn');
+  const err = document.getElementById('tpError');
+  const models = document.getElementById('tpModels');
+  if(!TP) return;
+  if(st){
+    st.textContent = TP.enabled ? '(已启用)' : '(未启用)';
+    st.style.color = TP.enabled ? 'var(--accent2)' : 'var(--dim)';
+  }
+  if(btn){
+    btn.textContent = TP.enabled ? '关闭' : '启用';
+    btn.className = TP.enabled ? 'danger mini' : 'mini';
+    btn.title = TP.enabled
+      ? '关闭后恢复反代到 workbuddy，模型列表也会随之恢复'
+      : '启用后反代会去访问上面填的地址';
+  }
+  const base = document.getElementById('tpBaseUrl');
+  const key = document.getElementById('tpApiKey');
+  if(base && !base.value && TP.base_url) base.value = TP.base_url;
+  if(key && !key.value) key.placeholder = TP.api_key_set ? '（已保存，留空则不修改）' : 'sk-...';
+  if(err){
+    err.textContent = TP.models_error || '';
+    err.style.display = TP.models_error ? '' : 'none';
+  }
+  if(models){
+    const n = (TP.models || []).length;
+    if(TP.enabled && n){
+      models.innerHTML = '该服务当前模型 <b>' + n + '</b> 个：'
+        + (TP.models.slice(0, 12).map(m => '<span class="mono">' + esc(m) + '</span>').join('、 '))
+        + (n > 12 ? ' …' : '')
+        + '<div style="margin-top:4px">重新「一键配置」客户端，让它写入新模型。</div>';
+    } else if(TP.enabled){
+      models.textContent = '尚未取到模型列表，点「测试连接 / 刷新模型」。';
+    } else {
+      models.textContent = TP.base_url
+        ? '已保存配置，关闭中。点「启用」即可切回第三方出口。'
+        : '填写 Base URL 与 API Key 后点「启用」。';
+    }
+  }
+}
+
+async function tpSave(){
+  const base = document.getElementById('tpBaseUrl');
+  const key = document.getElementById('tpApiKey');
+  const body = { base_url: base ? base.value.trim() : '', api_key: key ? key.value.trim() : '' };
+  if(!body.base_url || !body.api_key){
+    toast('Base URL 与 API Key 都要填', 'warn');
+    return null;
+  }
+  try {
+    const r = await postJSON('/agents/thirdparty', body);
+    if(r && (r.ok === false || r.error)){
+      toast('启用失败: ' + (r.message || r.error || '未知错误'), 'bad');
+      return null;
+    }
+    TP = r;
+    tpRender();
+    toast('已切换到第三方上游，正在重新拉取模型', 'ok');
+    return r;
+  } catch(e) {
+    if(!isAuthError(e)) toast('启用失败: ' + e.message, 'bad');
+    return null;
+  }
+}
+
+async function tpToggle(){
+  if(TP && TP.enabled){
+    try {
+      const r = await postJSON('/agents/thirdparty/disable', {});
+      if(r && (r.ok === false || r.error)){
+        toast('关闭失败: ' + (r.message || r.error || '未知错误'), 'bad');
+        return;
+      }
+      TP = r;
+      tpRender();
+      toast('已关闭，恢复反代到 workbuddy；客户端模型会在下次一键配置时恢复', 'ok');
+    } catch(e) {
+      if(!isAuthError(e)) toast('关闭失败: ' + e.message, 'bad');
+    }
+    return;
+  }
+  await tpSave();
+}
+
+async function tpProbe(){
+  const base = document.getElementById('tpBaseUrl');
+  const key = document.getElementById('tpApiKey');
+  const body = { base_url: base ? base.value.trim() : '', api_key: key ? key.value.trim() : '' };
+  const btn = document.getElementById('tpProbeBtn');
+  if(btn) btn.disabled = true;
+  try {
+    const r = await postJSON('/agents/thirdparty/probe', body);
+    TP = (r && r.profile) || TP;
+    tpRender();
+    if(r && r.error) toast('连接失败: ' + r.error, 'bad');
+    else toast('连接成功，取到 ' + (r.models || []).length + ' 个模型', 'ok');
+  } catch(e) {
+    if(!isAuthError(e)) toast('连接失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+window.tpLoad = tpLoad;
+window.tpToggle = tpToggle;
+window.tpProbe = tpProbe;
+window.tpRender = tpRender;
+
 
 /* ---- 系统运行日志模块 ---- */
 let logEntries = [];

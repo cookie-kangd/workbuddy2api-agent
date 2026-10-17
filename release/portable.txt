@@ -63,5 +63,6 @@ wb_scheduler.py
 wb_settings.py
 wb_tasks.py
 wb_upstream_pool.py
+wb_upstream_thirdparty.py
 wb_webagent.py
 wb_webtools.py

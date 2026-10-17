@@ -1,7 +1,7 @@
 # WorkBuddy2API-Agent — 国际版、国内版多账号反代网关
 
 <p align="center">
-  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.9-2496ED?style=flat-square" alt="Version 0.1.9"></a>
+  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.10-2496ED?style=flat-square" alt="Version 0.1.10"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -66,7 +66,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 156 个套件：116 个 Python + 40 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 157 个套件：117 个 Python + 40 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Windows + Python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**。
 
