@@ -84,7 +84,8 @@ result = A.integrate(state, "claude-desktop", "http://127.0.0.1:8788/v1",
                      models=GATEWAY_MODELS, home=home)
 written = {entry["path"] for entry in result["files"]}
 check("the gateway profile and the library index are written",
-      written == {paths["profile"], paths["meta"]}, sorted(written))
+      written == {paths["profile"], paths["meta"], paths["routes"]},
+      sorted(written))
 check("no empty 1P directory is created",
       not os.path.exists(paths["config"]), paths["config"])
 
@@ -112,7 +113,7 @@ check("each entry carries the real model name for the picker",
 check("no two entries share a model id",
       len(set(offered)) == len(offered), offered)
 check("the role slots are spread across the entries",
-      len({n.split("-", 3)[2] for n in offered.values()}) > 1, offered.values())
+      len({n.split("-", 2)[1] for n in offered.values()}) > 1, offered.values())
 
 print()
 print("[2c] every model round-trips back to itself")
@@ -120,8 +121,20 @@ print("[2c] every model round-trips back to itself")
 import wb_proxy as P  # noqa: E402
 
 # The id has to name the upstream model, or the gateway cannot tell which one
-# the user picked and every choice lands on the same model.
-for model_id, route in offered.items():
+# the user picked and every choice lands on the same model. The gateway reads
+# the alias->model map from the configLibrary the profile was written into.
+os.environ["LOCALAPPDATA"] = os.path.join(home, "AppData", "Local")
+P._claude_route_map_cache["stamp"] = None
+_orig_accounts2 = P.ACCOUNTS_DIR
+P.ACCOUNTS_DIR = state
+try:
+    for model_id, route in offered.items():
+        payload = {"model": route}
+        P._apply_claude_desktop_route_alias(payload)
+        check("%s resolves back to %s" % (route, model_id),
+              payload["model"] == model_id, payload)
+finally:
+    P.ACCOUNTS_DIR = _orig_accounts2
     payload = {"model": route}
     P._apply_claude_desktop_route_alias(payload)
     check("%s resolves back to %s" % (route, model_id),

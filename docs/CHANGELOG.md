@@ -1,5 +1,35 @@
 # 版本更新记录
 
+## v0.1.9 — Claude Desktop 模型全被拒收的根因修复
+
+v0.1.4–v0.1.8 里 Claude Desktop 的模型选择器只显示 3 个官方兜底模型，我们的模型一个
+都没出现。Claude 自己的日志给出了根因：它对 `inferenceModels` 里的每个 id 做一次
+「是不是 Anthropic 模型」校验，不合形状的**整条剔除**。
+
+### 根因（从 Claude 安装目录的 app.asar 提取的校验器）
+
+- 合法形状：`claude-<角色>-<版本号>`（角色 ∈ sonnet/opus/haiku/fable/mythos，版本号形如
+  `4-5`）；`anthropic/claude-*` 也行。
+- **含非 Anthropic 供应商名的 id 一律拒收**：`glm`、`gpt`、`deepseek`、`kimi`、
+  `minimax`、`gemini`、`grok`、`hy3` 等都在黑名单里——此前 `wb=<模型名>` 形式的 id
+  （`claude-sonnet-wb=deepseek-v4.1-flash`）正好撞上，16 个全被剔除。
+
+### 修复
+
+- **id 改为版本号形状**：`claude-<角色>-<大版本>-<小版本>`（如 `claude-sonnet-5-1`），
+  最多可容纳 40 个模型槽位，全部能通过校验。
+- **真实模型名移到 `labelOverride`**（选择器里显示的就是真名），与 CC Switch 做法一致。
+- **新增 alias→模型 映射文件**（`Claude-3p\configLibrary\wb-proxy-model-routes.json`），
+  与 profile 一同写入；网关收到别名 id 时查它还原真实模型——每个入口路由到自己的模型，
+  不再全部挤到配置时选的那一个。
+
+### 验证
+
+- 用 Claude 自带校验器复检：15/15 通过。
+- 网关路由复检：15/15 每个入口还原到正确模型。
+
+---
+
 ## v0.1.8 — 全局出口与客户端配置解耦
 
 「网关与账号」页切换默认出口时，此前会顺手重写所有已配置客户端的模型清单并重启

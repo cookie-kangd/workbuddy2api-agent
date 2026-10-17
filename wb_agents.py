@@ -1361,16 +1361,25 @@ CLAUDE_DESKTOP_PROFILE_ID = "00000000-0000-4000-8000-000000157210"
 CLAUDE_DESKTOP_PROFILE_NAME = "WB Proxy"
 CLAUDE_DESKTOP_CONFIG_FILE = "claude_desktop_config.json"
 CLAUDE_DESKTOP_LIBRARY_DIR = "configLibrary"
+CLAUDE_DESKTOP_ROUTES_FILE = "wb-proxy-model-routes.json"
 
-#: The role ids Claude Desktop accepts, in picker order. The `wb` suffix is
-#: deliberate: these must not collide with Anthropic's own model names, or a
-#: user cannot tell whether a picker entry is the gateway's or the official
-#: model - and every entry here maps to the same upstream model anyway.
+#: The role slots Claude Desktop accepts, in picker order. Ids are built as
+#: `claude-<role>-<version>` (see CLAUDE_DESKTOP_ROUTE_VERSIONS) because the
+#: app drops anything that does not look like an Anthropic model, so the real
+#: model name has to travel in `labelOverride` and the id->model map instead.
 CLAUDE_DESKTOP_ROUTES = (
-    ("claude-sonnet-wb", "Sonnet"),
-    ("claude-opus-wb", "Opus"),
-    ("claude-haiku-wb", "Haiku"),
-    ("claude-fable-wb", "Fable"),
+    ("claude-sonnet", "Sonnet"),
+    ("claude-opus", "Opus"),
+    ("claude-haiku", "Haiku"),
+    ("claude-fable", "Fable"),
+)
+
+#: Version-shaped suffixes for the alias ids. Enough distinct slots to give
+#: every model its own id while staying inside the shape Claude accepts.
+CLAUDE_DESKTOP_ROUTE_VERSIONS = tuple(
+    "%d-%d" % (major, minor)
+    for major in (5, 6, 7, 8, 9)
+    for minor in range(1, 9)
 )
 
 
@@ -1447,6 +1456,7 @@ def _claude_desktop_paths(home):
         "config3p": os.path.join(threep_dir, CLAUDE_DESKTOP_CONFIG_FILE),
         "profile": os.path.join(library, CLAUDE_DESKTOP_PROFILE_ID + ".json"),
         "meta": os.path.join(library, "_meta.json"),
+        "routes": os.path.join(library, CLAUDE_DESKTOP_ROUTES_FILE),
     }
 
 
@@ -1506,13 +1516,14 @@ def _claude_desktop_profile_for(ctx, current=None):
 
 
 def _claude_desktop_inference_models(ctx):
-    """The profile's model list: role ids plus the label the picker shows.
+    """The profile's picker entries: an alias id plus the label shown.
 
-    Claude Desktop only accepts `claude-<role>-<something>` ids, so the real
-    model name cannot be the id itself. Every model the gateway offers is
-    advertised (the schema allows 200), the id is a safe role-shaped slug built
-    from the model name, and the real name travels in `labelOverride` - the
-    same trick CC Switch uses, and what ends up on screen.
+    Claude Desktop validates every id against an Anthropic-model shape and
+    silently drops the rest, so the gateway's own model names (glm-*, gpt-*,
+    kimi-* ...) can never be the id. Each entry therefore gets a version-shaped
+    alias id and carries the real model name in `labelOverride` - the same trick
+    CC Switch uses. The id->model map is returned separately by
+    `_claude_desktop_route_map` so the gateway can route each choice back.
     """
     out = []
     seen = set()
@@ -1530,21 +1541,46 @@ def _claude_desktop_inference_models(ctx):
     # this integration was configured with, under the first role slot.
     model = str(ctx.get("model") or "").strip()
     if not model:
-        return [{"name": route_id, "labelOverride": role}
-                for route_id, role in CLAUDE_DESKTOP_ROUTES]
-    return [{"name": "claude-sonnet-wb", "labelOverride": model}]
+        return [{"name": _claude_route_slug("", i),
+                 "labelOverride": role}
+                for i, (_route, role) in enumerate(CLAUDE_DESKTOP_ROUTES)]
+    return [{"name": _claude_route_slug(model, 0), "labelOverride": model}]
+
+
+def _claude_desktop_route_map(ctx):
+    """alias id -> real model id, for every entry in the picker.
+
+    Mirrors `_claude_desktop_inference_models` one-for-one: the profile holds
+    only the alias, so this map is the only record of which upstream model a
+    picker choice means. Written next to the profile and read by the gateway
+    when Claude sends the alias back as `model`.
+    """
+    out = {}
+    for item in _claude_desktop_inference_models(ctx):
+        label = str(item.get("labelOverride") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if name and label:
+            out[name] = label
+    return out
 
 
 def _claude_route_slug(model, index):
-    """A Claude-Desktop-safe id that still names the upstream model.
+    """A model id Claude Desktop's own validator accepts.
 
-    The id has to start with `claude-<role>-` (the app rejects the whole group
-    otherwise). The rest is ours, so the model name is carried verbatim after
-    an `=` marker: the gateway splits on it and gets the exact model back,
-    dots and all, instead of guessing from a lossy normalisation.
+    The app checks every id against an Anthropic-model shape and silently
+    drops the ones it dislikes - including any id carrying a foreign provider
+    name (glm, gpt, deepseek, kimi, minimax, gemini, grok, hy3 ...). An id
+    built as `claude-<role>-<version>` passes; putting the real model name in
+    the id does not, which is how a whole profile ends up empty.
+
+    So the id is a version-shaped alias and the real model travels in
+    `labelOverride` (what the picker shows) plus the id->model map written
+    alongside the profile, which is what the gateway resolves at request time.
     """
     role = CLAUDE_DESKTOP_ROUTES[index % len(CLAUDE_DESKTOP_ROUTES)][0]
-    return "%s=%s" % (role, model)
+    version = CLAUDE_DESKTOP_ROUTE_VERSIONS[
+        index % len(CLAUDE_DESKTOP_ROUTE_VERSIONS)]
+    return "%s-%s" % (role, version)
     return out
 
 
@@ -1606,6 +1642,10 @@ def _apply_claude_desktop(paths, ctx):
             current = None
     out[profile_path] = _dump_json(_claude_desktop_profile_for(ctx, current))
     out[paths["meta"]] = _claude_desktop_meta(paths["meta"])
+    # The picker only carries alias ids, so the alias->model map has to live
+    # beside the profile: without it the gateway cannot tell which upstream
+    # model a picker choice means, and every entry would route to one model.
+    out[paths["routes"]] = _dump_json(_claude_desktop_route_map(ctx))
     for key in ("config3p", "config"):
         path = paths[key]
         if os.path.isfile(path):

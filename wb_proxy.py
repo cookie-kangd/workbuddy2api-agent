@@ -356,6 +356,7 @@ CLAUDE_DESKTOP_ROLE_ROUTES = (
     "claude-sonnet-", "claude-opus-", "claude-haiku-", "claude-fable-",
     "claude-mythos-",
 )
+CLAUDE_DESKTOP_ROUTES_FILE = "wb-proxy-model-routes.json"
 CLAUDE_DESKTOP_ROUTE_TARGET = os.environ.get(
     "WB_CLAUDE_ROUTE_TARGET", "deepseek-v4.1-flash")
 _claude_route_cache = {"stamp": None, "target": None}
@@ -437,18 +438,49 @@ def _apply_claude_desktop_route_alias(payload):
     lowered = name.strip().lower()
     if not any(lowered.startswith(prefix) for prefix in CLAUDE_DESKTOP_ROLE_ROUTES):
         return
-    # The id carries the real model after "=" (see wb_agents' route slug), so a
-    # picker with a dozen models maps each entry back to its own model rather
-    # than collapsing every choice onto the one that was selected at apply time.
-    if "=" in name:
-        target = name.split("=", 1)[1].strip()
-        if target:
-            payload["model"] = target
-            log("alias: Claude Desktop route %s -> %s" % (name, target))
-            return
+    # The picker id is a version-shaped alias (claude-<role>-<version>, see
+    # wb_agents) that says nothing about the upstream model. The alias->model
+    # map written beside the profile is the only record of what each choice
+    # means, so a dozen-model picker maps entry-for-entry instead of every
+    # choice landing on the one model selected at apply time.
+    mapped = _claude_desktop_route_lookup(name)
+    if mapped:
+        payload["model"] = mapped
+        log("alias: Claude Desktop route %s -> %s" % (name, mapped))
+        return
     target = _claude_desktop_route_target_for_request()
     payload["model"] = target
     log("alias: Claude Desktop route %s -> %s" % (name, target))
+
+
+_claude_route_map_cache = {"stamp": None, "map": None}
+
+
+def _claude_desktop_route_lookup(alias):
+    """The upstream model an alias id stands for, or None when unknown."""
+    # The map is written beside the profile in the client's configLibrary (see
+    # wb_agents), which is where a re-apply updates it too.
+    base = (os.environ.get("LOCALAPPDATA")
+            or os.path.join(os.path.expanduser("~"), "AppData", "Local"))
+    path = os.path.join(base, "Claude-3p", "configLibrary",
+                        CLAUDE_DESKTOP_ROUTES_FILE)
+    try:
+        stat = os.stat(path)
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return None
+    if _claude_route_map_cache["stamp"] != stamp:
+        table = {}
+        try:
+            with open(path, encoding="utf-8") as fh:
+                raw = json.load(fh) or {}
+            if isinstance(raw, dict):
+                table = {str(k): str(v) for k, v in raw.items() if v}
+        except Exception:
+            table = {}
+        _claude_route_map_cache["stamp"] = stamp
+        _claude_route_map_cache["map"] = table
+    return (_claude_route_map_cache["map"] or {}).get(alias)
 
 
 # The WorkBuddy AI desktop app caches its account product config here on every
@@ -10024,7 +10056,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.8",
+        "version": "0.1.9",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16198,7 +16230,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.8"
+    server_version = "wb-proxy/0.1.9"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
