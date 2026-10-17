@@ -4556,7 +4556,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
           <div style="font-size:12px;color:var(--dim);margin-top:4px">切换网关出口到其它 OpenAI 兼容服务。启用时必须选择一个智能体；只会重新应用并重启这个智能体，WorkBuddy 连接信息保持不变。</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="sec mini" onclick="tpProbe()">测试连接 / 刷新模型</button>
+          <button class="sec mini" id="tpProbeBtn" onclick="tpProbe()">测试连接 / 刷新模型</button>
           <button class="mini" id="tpToggleBtn" onclick="tpToggle()">启用</button>
         </div>
       </div>
@@ -11722,6 +11722,29 @@ window.copyAgentUrl = copyAgentUrl;
 
 /* ---- 第三方上游（把网关出口换成别的 OpenAI 兼容服务）---- */
 let TP = null;
+let TP_PROBING = false;
+let TP_AUTO_PROBE_TIMER = null;
+
+function tpScheduleAutoProbe(){
+  if(TP_AUTO_PROBE_TIMER) clearTimeout(TP_AUTO_PROBE_TIMER);
+  TP_AUTO_PROBE_TIMER = setTimeout(async () => {
+    TP_AUTO_PROBE_TIMER = null;
+    const base = document.getElementById('tpBaseUrl');
+    const key = document.getElementById('tpApiKey');
+    if(!base || !key || !base.value.trim() || !key.value.trim()) return;
+    await tpProbe(true);
+  }, 700);
+}
+
+function tpBindAutoProbe(){
+  ['tpBaseUrl', 'tpApiKey'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el && !el.dataset.tpAutoBound){
+      el.dataset.tpAutoBound = '1';
+      el.addEventListener('input', tpScheduleAutoProbe);
+    }
+  });
+}
 
 async function tpLoad(){
   try {
@@ -11740,6 +11763,7 @@ function tpRender(){
   const models = document.getElementById('tpModels');
   const agentSel = document.getElementById('tpAgentSelect');
   const modelSel = document.getElementById('tpDefaultModel');
+  tpBindAutoProbe();
   if(!TP) return;
   if(st){
     st.textContent = TP.enabled ? '(已启用)' : '(未启用)';
@@ -11776,7 +11800,7 @@ function tpRender(){
     const prev = modelSel.value || TP.default_model || '';
     let html = '<option value="">不指定，使用客户端默认模型</option>';
     (TP.models || []).forEach(mid => {
-      const id = typeof m === 'string' ? m : (m && (m.id || m.model) || '');
+      const id = typeof mid === 'string' ? mid : (mid && (mid.id || mid.model) || '');
       if(!id) return;
       html += '<option value="' + esc(id) + '">' + esc(id) + '</option>';
     });
@@ -11873,7 +11897,7 @@ async function tpToggle(){
   await tpSave();
 }
 
-async function tpProbe(){
+async function tpProbe(silent){
   const base = document.getElementById('tpBaseUrl');
   const key = document.getElementById('tpApiKey');
   const agentSel = document.getElementById('tpAgentSelect');
@@ -11885,16 +11909,24 @@ async function tpProbe(){
     default_model: modelSel ? modelSel.value : ''
   };
   const btn = document.getElementById('tpProbeBtn');
+  if(TP_PROBING) return;
+  TP_PROBING = true;
   if(btn) btn.disabled = true;
   try {
     const r = await postJSON('/agents/thirdparty/probe', body);
     TP = (r && r.profile) || TP;
+    if(r && r.error) TP.models_error = r.error;
+    else TP.models_error = '';
     tpRender();
-    if(r && r.error) toast('连接失败: ' + r.error, 'bad');
-    else toast('连接成功，取到 ' + (r.models || []).length + ' 个模型', 'ok');
+    if(r && r.error){
+      if(!silent) toast('连接失败: ' + r.error, 'bad');
+    } else if(!silent){
+      toast('连接成功，取到 ' + (r.models || []).length + ' 个模型', 'ok');
+    }
   } catch(e) {
-    if(!isAuthError(e)) toast('连接失败: ' + e.message, 'bad');
+    if(!isAuthError(e) && !silent) toast('连接失败: ' + e.message, 'bad');
   } finally {
+    TP_PROBING = false;
     if(btn) btn.disabled = false;
   }
 }

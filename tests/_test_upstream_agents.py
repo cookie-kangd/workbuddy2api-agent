@@ -145,6 +145,10 @@ try:
     check("WorkBuddy apply reports that the third-party exit was disabled",
           applied_result.get("thirdparty_disabled") is True, applied_result)
     check("the third-party profile is now off", tp.is_enabled(accounts) is False)
+    tp_code, tp_view = proxy.Handler._get_thirdparty(h)
+    check("the third-party status endpoint still answers after the switch",
+          tp_code == 200 and tp_view.get("enabled") is False,
+          (tp_code, tp_view))
 
     print()
     print("[6] enabling the third-party card requires a client and uses it")
@@ -248,6 +252,9 @@ try:
           'id="tpAgentSelect"' in dashboard and 'id="tpDefaultModel"' in dashboard)
     check("the panel rejects enable without a selected agent",
           "请选择使用第三方上游的智能体" in dashboard)
+    check("the panel auto-refreshes models after URL and key input",
+          "tpScheduleAutoProbe" in dashboard
+          and "addEventListener('input', tpScheduleAutoProbe)" in dashboard)
 finally:
     proxy.ACCOUNTS_DIR = orig_accounts
     proxy.API_KEY = orig_api_key

@@ -10176,7 +10176,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.14",
+        "version": "0.1.15",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16430,7 +16430,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.14"
+    server_version = "wb-proxy/0.1.15"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -18418,9 +18418,9 @@ class Handler(BaseHTTPRequestHandler):
             patch = {"enabled": thirdparty_module().is_enabled(ACCOUNTS_DIR),
                      "base_url": base_url or current.get("base_url"),
                      "api_key": api_key}
-            if "client_id" in payload:
+            if payload.get("client_id"):
                 patch["client_id"] = payload.get("client_id")
-            if "default_model" in payload:
+            if payload.get("default_model"):
                 patch["default_model"] = payload.get("default_model")
             thirdparty_module().save(ACCOUNTS_DIR, patch)
         models, error = thirdparty_module().probe_models(ACCOUNTS_DIR)
