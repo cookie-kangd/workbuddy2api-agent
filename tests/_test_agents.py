@@ -982,5 +982,51 @@ check("an unknown key id falls back to the global switch",
       P.Handler._agents_key_realm(h31, {"key_id": "nope"}) == "", None)
 P.configured_keys = _orig_configured_keys
 
+
+print()
+print("[32] the global exit switch leaves configured clients alone")
+
+# A client's model list belongs to the key it was configured with, so the
+# global switch must not rewrite or restart anything: only an explicit apply /
+# re-apply from the Agent Setup page changes a client's config.
+home32 = tempfile.mkdtemp(prefix="wb-agents-home32-")
+acct32 = tempfile.mkdtemp(prefix="wb-agents-acct32-")
+A.integrate(acct32, "codex", "http://127.0.0.1:8788/v1", "sk-cn", model="m-cn",
+            models=[{"id": "m-cn"}], home=home32, key_id="cn-key")
+cat32 = os.path.join(home32, ".codex", "wb-proxy-model-catalog.json")
+h32 = P.Handler.__new__(P.Handler)
+h32._panel_ok = lambda: True
+h32._agents_client_allowed = lambda: True
+h32._agents_models_for = lambda realm: [{"id": "m-" + (realm or "global")}]
+h32._agents_key_realm = lambda payload: "cn"
+h32._agents_maybe_restart = lambda wb, cid, wanted: {"requested": False}
+h32._json = lambda code, obj: (code, obj)
+h32._error = lambda code, msg, typ="": (code, {"error": msg})
+_orig_accounts32 = P.ACCOUNTS_DIR
+P.ACCOUNTS_DIR = acct32
+try:
+    code32, res32 = P.Handler._route_realm(h32, {"realm": "intl"})
+    check("the switch still reports the new exit",
+          res32.get("current") == "intl" and res32.get("persisted") is True,
+          (code32, res32))
+    check("no client rewrite is triggered",
+          res32.get("agents", {}).get("skipped") is True, res32.get("agents"))
+    listed32 = json.load(open(cat32, encoding="utf-8"))
+    check("the client config is untouched",
+          [m.get("slug") for m in listed32.get("models", [])] == ["m-cn"],
+          [m.get("slug") for m in listed32.get("models", [])])
+
+    # An explicit request still rewrites, and it uses the key's own exit.
+    code33, res33 = P.Handler._route_realm(h32, {"realm": "cn", "restart": True})
+    check("an explicit restart=True does rewrite",
+          any(e.get("rewritten") for e in res33.get("agents", {}).get("results", [])),
+          res33.get("agents"))
+    listed33 = json.load(open(cat32, encoding="utf-8"))
+    check("the rewrite uses the key's bound exit, not the global one",
+          [m.get("slug") for m in listed33.get("models", [])] == ["m-cn"],
+          [m.get("slug") for m in listed33.get("models", [])])
+finally:
+    P.ACCOUNTS_DIR = _orig_accounts32
+
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

@@ -1774,6 +1774,11 @@ def overview(accounts_dir, home=None):
                 "at": record.get("applied_at"),
                 "base_url": record.get("base_url"),
                 "model": record.get("model"),
+                # Which key this client was configured with, so the panel can
+                # show the exit it is actually on (the key's bound exit, not
+                # the global switch). Never carries the key value itself.
+                "key_id": record.get("key_id"),
+                "home": record.get("home"),
                 "files": len(record.get("files") or []),
                 "external_change": external,
             }

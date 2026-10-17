@@ -10024,7 +10024,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.7",
+        "version": "0.1.8",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16198,7 +16198,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.7"
+    server_version = "wb-proxy/0.1.8"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -18137,7 +18137,6 @@ class Handler(BaseHTTPRequestHandler):
                 overview = wb_agents.overview(ACCOUNTS_DIR)
             except Exception:
                 overview = {}
-            models = self._agents_models()
             results = []
             for client_id, record in sorted(state.items()):
                 client = wb_agents.CLIENTS.get(client_id)
@@ -18160,6 +18159,11 @@ class Handler(BaseHTTPRequestHandler):
                                         "skipped": "no gateway key available"})
                         continue
                     api_key = "wb-local"
+                # The list follows the key this client was configured with,
+                # exactly like a fresh apply: a CodexCN integration keeps its
+                # cn list even when the global switch is on intl.
+                models = self._agents_models_for(
+                    self._agents_key_realm({"key_id": record.get("key_id")}))
                 try:
                     written = wb_agents.integrate(
                         ACCOUNTS_DIR, client_id, base_url, api_key,
@@ -18763,11 +18767,20 @@ class Handler(BaseHTTPRequestHandler):
         new_realm = payload.get("realm")
         if new_realm in ("intl", "cn"):
             save_persisted_realm(new_realm)
-        # The exit decides which models exist, and the one-click clients bake
-        # that list into their own config: rewrite those files now (and restart
-        # the app when it is running) so the switch is not a lie until the user
-        # happens to reconfigure something.
-        agents = self._agents_reapply_for_realm(payload.get("restart"))
+        # Deliberately does NOT touch the configured clients. A client's model
+        # list belongs to the key it was configured with (that key's bound exit
+        # decides the list, see _agents_key_realm), so the global switch only
+        # decides which exit *unbound* requests take. Rewriting the clients
+        # here would replace their key-scoped list with the global one and
+        # restart apps the user never asked to restart - so the only way a
+        # client's config changes is an explicit apply / re-apply from the
+        # Agent Setup page.
+        # Ask for a rewrite explicitly (restart=true) when you want one.
+        agents = {"skipped": True,
+                  "reason": "the global exit switch leaves configured clients "
+                            "alone; use Agent Setup to re-apply with a key"}
+        if payload.get("restart") is True:
+            agents = self._agents_reapply_for_realm(payload.get("restart"))
         return self._json(200, {"ok": True, "current": CURRENT_REALM,
                                 "persisted": True, "agents": agents})
 

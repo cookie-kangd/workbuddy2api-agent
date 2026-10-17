@@ -4525,6 +4525,9 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
           <select id="agentKeySelect"
                   style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit"></select>
         </div>
+        <div style="flex-basis:100%;margin-top:-4px">
+          <div id="agentKeyExitHint" style="font-size:11px;color:var(--dim)"></div>
+        </div>
         <div style="flex:1;min-width:200px">
           <div style="font-size:12px;color:var(--dim);margin-bottom:4px">默认模型</div>
           <select id="agentModelSelect"
@@ -5129,21 +5132,12 @@ async function toggleActiveGatewayRealm(){
   try {
     const res = await postJSON("/realm", {realm: next});
     window.ACTIVE_GATEWAY_REALM = res.current || next;
-    toast("网关默认上游已切换并永久保存为: " + (window.ACTIVE_GATEWAY_REALM === "intl" ? "国际版" : "国内版"));
-    // Switching the exit changes the model list, and the one-click clients
-    // bake that list into their own config: the server rewrites those files
-    // (and restarts the app) as part of this call. Say so, otherwise the old
-    // model list silently lingers in the client.
-    const ag = res.agents || null;
-    const restartedAgents = ag && Array.isArray(ag.results)
-      ? ag.results.filter(x => (x.restart || {}).started).length : 0;
-    const rewrittenAgents = ag && Array.isArray(ag.results)
-      ? ag.results.filter(x => x.rewritten).length : 0;
-    if(rewrittenAgents){
-      toast(restartedAgents
-        ? "已重写客户端配置，并重启了正在运行的客户端"
-        : "已重写客户端配置，客户端当前未运行，下次打开生效");
-    }
+    // This switch only decides which exit *unbound* requests take. A client
+    // configured from the Agent Setup page keeps the list its key's bound exit
+    // implies, and no app is restarted here - a client's config changes only
+    // when you apply / re-apply it explicitly.
+    toast("网关默认上游已切换并永久保存为: " + (window.ACTIVE_GATEWAY_REALM === "intl" ? "国际版" : "国内版")
+      + "（未绑定 Key 的请求走这里；已配置的客户端不受影响）");
     setViewRealm(window.ACTIVE_GATEWAY_REALM);
     window.updateUI();
     await Promise.all([loadAccounts(), loadModels(), loadGrowthTasks(),
@@ -11372,6 +11366,21 @@ function renderAgentConnForm(){
       || (location.origin + '/v1');
     baseInput.value = def;
   }
+  // 出口提示：所选 Key 的绑定出口决定写入的模型清单（未绑定则跟随全局）。
+  const hint = document.getElementById('agentKeyExitHint');
+  if(hint){
+     const keySel = document.getElementById('agentKeySelect');
+     const sel = keySel ? keySel.value : '';
+     const k = (AGENT_KEYS || []).find(x => String(x.id) === String(sel));
+     if(k && k.realm){
+       hint.textContent = '该 Key 绑定「' + (k.realm === 'cn' ? '国内版' : '国际版')
+         + '」出口，一键配置会写入该出口的模型清单。';
+       hint.style.display = '';
+     } else {
+       hint.textContent = '全局 API Key 跟随网关默认出口（在「网关与账号」页切换）。';
+       hint.style.display = '';
+     }
+   }
   const keySel = document.getElementById('agentKeySelect');
   if(keySel){
     const prev = keySel.value;
@@ -11479,6 +11488,21 @@ function renderAgentCards(){
     const applied = c.applied || null;
     let appliedHtml = '';
     let warnHtml = '';
+    // Which key/exit this client is configured with. The key's bound exit is
+    // what actually decides the model list - the global switch only covers
+    // unbound requests - so show it right above the models.
+    let appliedKeyLabel = '-';
+    if(applied && applied.key_id){
+      const k = (AGENT_KEYS || []).find(x => String(x.id) === String(applied.key_id));
+      if(k){
+        appliedKeyLabel = (k.name || k.id) + (k.realm
+          ? '（' + (k.realm === 'cn' ? '国内版' : '国际版') + '）' : '');
+      } else {
+        appliedKeyLabel = '已删除的 Key';
+      }
+    } else if(applied){
+      appliedKeyLabel = '全局 API Key（跟随网关默认出口）';
+    }
     if(applied){
       let at = '-';
       if(applied.at){
@@ -11491,6 +11515,7 @@ function renderAgentCards(){
       }
       appliedHtml = '<div style="font-size:11px;color:var(--dim);margin-top:8px;line-height:1.7">'
         + '<div>应用时间: <span class="mono">' + at + '</span></div>'
+        + '<div>网关出口: <span class="mono">' + esc(appliedKeyLabel) + '</span></div>'
         + '<div>base_url: <span class="mono">' + esc(applied.base_url || '-') + '</span></div>'
         + '<div>模型: <span class="mono">' + esc(applied.model || '(未指定)') + '</span></div>'
         + '</div>';
