@@ -126,10 +126,14 @@ print()
 print("[6] the panel view never carries the key")
 
 tp.save(d, {"enabled": True, "base_url": "https://api.example.com/v1",
-            "api_key": "sk-super-secret"})
+            "api_key": "sk-super-secret", "client_id": "codex",
+            "default_model": "model-a"})
 view = tp.describe(d)
 check("no api_key in the view", "api_key" not in view, list(view))
 check("api_key_set is reported", view["api_key_set"] is True, view)
+check("the selected client is reported", view["client_id"] == "codex", view)
+check("the default model is reported",
+      view["default_model"] == "model-a", view)
 check("the key value never appears in the rendered view",
       "sk-super-secret" not in json.dumps(view), view)
 

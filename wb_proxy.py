@@ -10176,7 +10176,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.13",
+        "version": "0.1.14",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -13273,6 +13273,7 @@ def open_upstream_thirdparty(payload, prebuilt_body=None):
     profile = tp.load(ACCOUNTS_DIR)
     body = (prebuilt_body if prebuilt_body is not None
             else build_upstream_body(payload))
+    body = strip_native_web_tools(dict(body or {}))
     effort = upstream_effort_of(body, str(payload.get("model") or ""))
     try:
         resp = tp.open_chat(body, ACCOUNTS_DIR)
@@ -14647,6 +14648,49 @@ def tool_name_of(tool):
     if isinstance(tool.get("function"), dict):
         return str((tool.get("function") or {}).get("name") or "")
     return str(tool.get("name") or "")
+
+
+def strip_native_web_tools(body):
+    """Remove server-side web tools before a third-party chat request.
+
+    OpenAI-compatible third-party models are not guaranteed to support native
+    ``web_search`` declarations. Forwarding one makes providers such as the AMD
+    gateway reject the whole request with a 400 before the model ever runs.
+    Keep ordinary function tools untouched; only native web declarations and
+    function-shaped web_search/web_fetch are removed for the external exit.
+    """
+    if not isinstance(body, dict):
+        return body
+    native_types = set(wb_webtools.SEARCH_DECL_TYPES + wb_webtools.FETCH_DECL_TYPES)
+    web_names = {wb_webtools.WEB_SEARCH_NAME, wb_webtools.WEB_FETCH_NAME}
+    kept = []
+    for tool in body.get("tools") or []:
+        if not isinstance(tool, dict):
+            continue
+        kind = str(tool.get("type") or "").strip().lower()
+        name = tool_name_of(tool).strip().lower()
+        if kind in native_types or name in web_names:
+            continue
+        kept.append(tool)
+    if kept:
+        body["tools"] = kept
+    else:
+        body.pop("tools", None)
+        # tool_choice/parallel_tool_calls are invalid when no tools remain.
+        # Providers validate this before the model runs and return a 400.
+        body.pop("tool_choice", None)
+        body.pop("parallel_tool_calls", None)
+    # A dangling tool_choice would be rejected even after the declaration is
+    # removed, so drop only choices that point at one of the removed tools.
+    choice = body.get("tool_choice")
+    if isinstance(choice, dict):
+        kind = str(choice.get("type") or "").strip().lower()
+        name = str(choice.get("name") or "").strip().lower()
+        if kind in native_types or name in web_names:
+            body.pop("tool_choice", None)
+    elif isinstance(choice, str) and choice.strip().lower() in web_names:
+        body.pop("tool_choice", None)
+    return body
 
 
 def _responses_input_to_messages(payload):
@@ -16386,7 +16430,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.13"
+    server_version = "wb-proxy/0.1.14"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -18138,21 +18182,6 @@ class Handler(BaseHTTPRequestHandler):
         """
         models = []
         seen = set()
-        # The third-party exit replaces the whole upstream, so its model list
-        # wins over both the global realm and a key-bound realm. Returning the
-        # WorkBuddy list here would make a re-apply write the wrong catalog
-        # while the chat route sends requests to the third-party service.
-        if thirdparty_enabled():
-            ids = thirdparty_module().model_ids(ACCOUNTS_DIR)
-            if not ids:
-                ids = thirdparty_module().load(ACCOUNTS_DIR).get("models") or []
-            out = []
-            for mid in ids:
-                mid = str(mid or "").strip()
-                if mid and mid not in seen:
-                    seen.add(mid)
-                    out.append({"id": mid})
-            return out
         try:
             try:
                 entries = fetch_models(realm or None)
@@ -18250,6 +18279,20 @@ class Handler(BaseHTTPRequestHandler):
             pass
         return models
 
+    def _agents_models_thirdparty(self):
+        """Current third-party catalog, kept separate from WorkBuddy info."""
+        ids = thirdparty_module().model_ids(ACCOUNTS_DIR)
+        if not ids:
+            ids = thirdparty_module().load(ACCOUNTS_DIR).get("models") or []
+        out = []
+        seen = set()
+        for mid in ids:
+            mid = str(mid or "").strip()
+            if mid and mid not in seen:
+                seen.add(mid)
+                out.append({"id": mid})
+        return out
+
     def _agents_choose_model(self, model, models):
         """Return a model id that exists in the list about to be written.
 
@@ -18310,19 +18353,31 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_thirdparty_save(self, payload):
         """Store a profile and turn the third-party exit on.
 
-        Requires both fields: a URL without a key cannot authenticate, and a
-        key without a URL has nowhere to go. Enabling it is what actually
-        re-routes chat traffic, so this is also the switch's "on" action.
+        Requires a URL, a key and an explicit selected agent. The selected
+        agent is the only client this switch is allowed to re-apply/restart;
+        broadcasting to every installed client makes the operator unable to
+        tell which app is about to be replaced.
         """
         if not self._panel_ok():
             return self._error(401, "panel password required", "invalid_request_error")
         base_url = str(payload.get("base_url") or "").strip()
         api_key = str(payload.get("api_key") or "").strip()
+        client_id = str(payload.get("client_id") or "").strip()
+        default_model = str(payload.get("default_model") or "").strip()
         current = thirdparty_module().load(ACCOUNTS_DIR)
         # An empty field means "keep the saved value". The panel intentionally
         # hides the key after saving, so requiring it again would make the
         # documented re-enable path impossible and invites accidental erasure.
         base_url = base_url or current.get("base_url") or ""
+        if not client_id:
+            return self._error(400, "please select an agent for this upstream",
+                               "invalid_request_error")
+        wb_agents = agents_module()
+        overview = wb_agents.overview(ACCOUNTS_DIR)
+        target = overview.get(client_id) or {}
+        if not (target.get("installed") or target.get("configured")):
+            return self._error(400, "selected agent is not available",
+                               "invalid_request_error")
         if not base_url or not (api_key or current.get("api_key")):
             return self._error(400, "base_url and api_key are both required",
                                "invalid_request_error")
@@ -18330,7 +18385,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(400, "base_url must start with http:// or https://",
                                "invalid_request_error")
         profile = thirdparty_module().save(
-            ACCOUNTS_DIR, {"enabled": True, "base_url": base_url, "api_key": api_key})
+            ACCOUNTS_DIR, {"enabled": True, "base_url": base_url,
+                           "api_key": api_key, "client_id": client_id,
+                           "default_model": default_model})
         # Fetch the endpoint's models right away so the panel (and the next
         # one-click apply) has a real list instead of an empty one.
         models, error = thirdparty_module().probe_models(ACCOUNTS_DIR)
@@ -18338,7 +18395,10 @@ class Handler(BaseHTTPRequestHandler):
             % (profile["base_url"], len(models), ", " + error if error else ""),
             tag="agents")
         if models:
-            agent_sync = self._agents_sync_client_configs(restart=True)
+            agent_sync = self._agents_sync_client_configs(
+                restart=True, client_ids=[client_id],
+                default_model=default_model or None,
+                models=self._agents_models_thirdparty())
         else:
             agent_sync = {"available": True, "results": [],
                           "warning": "third-party model list is empty; "
@@ -18353,12 +18413,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(401, "panel password required", "invalid_request_error")
         base_url = str(payload.get("base_url") or "").strip()
         api_key = str(payload.get("api_key") or "").strip()
-        if base_url or api_key:
+        if base_url or api_key or "client_id" in payload or "default_model" in payload:
             current = thirdparty_module().load(ACCOUNTS_DIR)
-            thirdparty_module().save(
-                ACCOUNTS_DIR, {"enabled": thirdparty_module().is_enabled(ACCOUNTS_DIR),
-                               "base_url": base_url or current.get("base_url"),
-                               "api_key": api_key})
+            patch = {"enabled": thirdparty_module().is_enabled(ACCOUNTS_DIR),
+                     "base_url": base_url or current.get("base_url"),
+                     "api_key": api_key}
+            if "client_id" in payload:
+                patch["client_id"] = payload.get("client_id")
+            if "default_model" in payload:
+                patch["default_model"] = payload.get("default_model")
+            thirdparty_module().save(ACCOUNTS_DIR, patch)
         models, error = thirdparty_module().probe_models(ACCOUNTS_DIR)
         return self._json(200, {"models": models, "error": error,
                                 "profile": thirdparty_module().describe(ACCOUNTS_DIR)})
@@ -18374,8 +18438,12 @@ class Handler(BaseHTTPRequestHandler):
         current = thirdparty_module().load(ACCOUNTS_DIR)
         thirdparty_module().save(
             ACCOUNTS_DIR, {"enabled": False, "base_url": current.get("base_url"),
-                           "api_key": current.get("api_key")})
-        agent_sync = self._agents_reapply_for_realm(restart=True)
+                           "api_key": current.get("api_key"),
+                           "client_id": current.get("client_id"),
+                           "default_model": current.get("default_model")})
+        selected = current.get("client_id")
+        agent_sync = self._agents_reapply_for_realm(
+            restart=True, client_ids=[selected] if selected else None)
         log("thirdparty upstream disabled: back to the WorkBuddy exit", tag="agents")
         reply = thirdparty_module().describe(ACCOUNTS_DIR)
         reply["agents"] = agent_sync
@@ -18402,9 +18470,20 @@ class Handler(BaseHTTPRequestHandler):
                     })
         except Exception:
             keys = []
+        clients = list(wb_agents.overview(ACCOUNTS_DIR).values())
+        tp_profile = thirdparty_module().describe(ACCOUNTS_DIR)
+        if tp_profile.get("enabled"):
+            for client in clients:
+                applied = client.get("applied")
+                if (client.get("id") == tp_profile.get("client_id")
+                        and isinstance(applied, dict)):
+                    applied["upstream"] = tp_profile.get("vendor") or "第三方上游"
+                    applied["upstream_base_url"] = tp_profile.get("base_url") or ""
+                    applied["upstream_model"] = (
+                        tp_profile.get("default_model") or applied.get("model"))
         return self._json(200, {
             "enabled": True,
-            "clients": list(wb_agents.overview(ACCOUNTS_DIR).values()),
+            "clients": clients,
             "models": self._agents_models(),
             # Per-exit lists for the picker: the panel follows the selected
             # key's bound exit (see _agents_models_for).
@@ -18421,6 +18500,7 @@ class Handler(BaseHTTPRequestHandler):
             # 400 halfway through a session.
             "anthropic_messages_enabled": _anthropic_messages_enabled(),
             "gateway": {"base_url": self._agents_base_url_hint()},
+            "thirdparty": tp_profile,
         })
 
     def _agents_maybe_restart(self, wb_agents, client_id, wanted):
@@ -18447,7 +18527,8 @@ class Handler(BaseHTTPRequestHandler):
                    report.get("error") or "-"), tag="agents")
         return report
 
-    def _agents_reapply_for_realm(self, restart=None):
+    def _agents_reapply_for_realm(self, restart=None, models=None,
+                                  model_override=None, client_ids=None):
         """Rewrite every integration whose config embeds the model list.
 
         The upstream exit decides which models exist, and Codex / DSH / Crush /
@@ -18471,7 +18552,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 overview = {}
             results = []
+            selected = set(client_ids) if client_ids else None
             for client_id, record in sorted(state.items()):
+                if selected is not None and client_id not in selected:
+                    continue
                 client = wb_agents.CLIENTS.get(client_id)
                 if client is None or not isinstance(record, dict):
                     continue
@@ -18495,17 +18579,20 @@ class Handler(BaseHTTPRequestHandler):
                 # The list follows the key this client was configured with,
                 # exactly like a fresh apply: a CodexCN integration keeps its
                 # cn list even when the global switch is on intl.
-                models = self._agents_models_for(
-                    self._agents_key_realm({"key_id": record.get("key_id")}))
-                if not models:
+                model_list = models
+                if model_list is None:
+                    model_list = self._agents_models_for(
+                        self._agents_key_realm({"key_id": record.get("key_id")}))
+                if not model_list:
                     results.append({"client": client_id,
                                     "skipped": "no models available"})
                     continue
-                model = self._agents_choose_model(record.get("model"), models)
+                model = self._agents_choose_model(
+                    model_override or record.get("model"), model_list)
                 try:
                     written = wb_agents.integrate(
                         ACCOUNTS_DIR, client_id, base_url, api_key,
-                        model=model, models=models,
+                        model=model, models=model_list,
                         key_id=record.get("key_id"),
                         home=record.get("home"))
                 except Exception as exc:
@@ -18526,20 +18613,20 @@ class Handler(BaseHTTPRequestHandler):
                         wb_agents, client_id, restart)
                 results.append(entry)
             if results:
-                log("realm switch: re-applied agent configs %s"
+                log("agent configs re-applied: %s"
                     % ", ".join(r["client"] for r in results), tag="agents")
             return {"available": True, "results": results}
         except Exception as exc:
             return {"available": True, "error": str(exc), "results": []}
 
-    def _agents_sync_client_configs(self, restart=True):
+    def _agents_sync_client_configs(self, restart=True, client_ids=None,
+                                    default_model=None, models=None):
         """Bring every local client in line with the current upstream exit.
 
-        A configured client is re-applied with the current model catalog. An
-        installed but never-configured client is given the same one-click
-        configuration, using the gateway's global key and the first current
-        model. This is what makes enabling a third-party upstream automatic
-        instead of leaving the operator to discover a stale picker later.
+        The selected client is re-applied when it has an integration record;
+        an installed but never-configured selected client is given the same
+        one-click configuration. The model catalog is passed explicitly by
+        the third-party card, so WorkBuddy connection info stays isolated.
         """
         if not self._agents_client_allowed():
             return {"available": False,
@@ -18550,7 +18637,8 @@ class Handler(BaseHTTPRequestHandler):
             wb_agents = agents_module()
             state = wb_agents.integration_state(ACCOUNTS_DIR)
             overview = wb_agents.overview(ACCOUNTS_DIR)
-            models = self._agents_models_for(None)
+            if models is None:
+                models = self._agents_models_thirdparty()
             ids = [item.get("id") for item in models
                    if isinstance(item, dict) and item.get("id")]
             if not ids:
@@ -18560,9 +18648,12 @@ class Handler(BaseHTTPRequestHandler):
             # First re-apply the clients this gateway already knows how to
             # restore. That path preserves each client's original base URL,
             # key binding and home directory.
-            reapply = self._agents_reapply_for_realm(restart=restart)
+            reapply = self._agents_reapply_for_realm(
+                restart=restart, models=models, model_override=default_model,
+                client_ids=client_ids)
             results = list(reapply.get("results") or [])
             configured = set(state)
+            selected = set(client_ids) if client_ids else None
 
             warnings = []
             try:
@@ -18577,8 +18668,10 @@ class Handler(BaseHTTPRequestHandler):
                 api_key = "wb-local"
 
             base_url = self._agents_base_url_hint()
-            default_model = ids[0]
+            chosen_default = self._agents_choose_model(default_model, models) or ids[0]
             for client_id, client in sorted(overview.items()):
+                if selected is not None and client_id not in selected:
+                    continue
                 if client_id in configured:
                     continue
                 if not client.get("installed"):
@@ -18586,7 +18679,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     written = wb_agents.integrate(
                         ACCOUNTS_DIR, client_id, base_url, api_key,
-                        model=default_model, models=models, key_id=None)
+                        model=chosen_default, models=models, key_id=None)
                     entry = {"client": client_id,
                              "configured": True,
                              "rewritten": len(written.get("files") or [])}
@@ -18656,6 +18749,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(
                 400, "base_url must start with http:// or https://",
                 "invalid_request_error")
+        thirdparty_disabled = False
+        if thirdparty_enabled():
+            current_tp = thirdparty_module().load(ACCOUNTS_DIR)
+            thirdparty_module().save(
+                ACCOUNTS_DIR, {"enabled": False,
+                               "base_url": current_tp.get("base_url"),
+                               "api_key": current_tp.get("api_key"),
+                               "client_id": current_tp.get("client_id"),
+                               "default_model": current_tp.get("default_model")})
+            thirdparty_disabled = True
+            log("agents apply: returned to the WorkBuddy exit", tag="agents")
         model = str(payload.get("model") or "").strip() or None
         key_realm = self._agents_key_realm(payload)
         models = payload.get("models")
@@ -18681,15 +18785,6 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 reattached.append(enriched.get(mid) or {"id": mid})
             models = reattached
-        # The panel may still be holding the pre-switch list in memory. When a
-        # third-party exit is active, the backend is authoritative: never
-        # write the old WorkBuddy catalog into a client after the switch.
-        if thirdparty_enabled():
-            models = self._agents_models_for(key_realm)
-            if not models:
-                return self._error(
-                    409, "third-party upstream has no models; "
-                         "test the connection first", "invalid_request_error")
         if not isinstance(models, list):
             return self._error(400, "models must be a list",
                                "invalid_request_error")
@@ -18713,8 +18808,6 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             specs = {}
         cleaned_models = enrich_agent_models(cleaned_models, specs)
-        if thirdparty_enabled():
-            model = self._agents_choose_model(model, cleaned_models)
         warnings = []
         try:
             api_key = self._agents_resolve_key(payload, warnings)
@@ -18758,6 +18851,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             return self._error(500, "agents apply failed: %s" % exc)
         result["warnings"] = warnings
+        result["thirdparty_disabled"] = thirdparty_disabled
         # The client only re-reads the file we just wrote when it is restarted;
         # the panel asks for that by default and can opt out with restart=false.
         result["restart"] = self._agents_maybe_restart(

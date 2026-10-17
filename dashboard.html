@@ -1940,7 +1940,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '这个区间里没有签到或活跃记录。': 'No check-in or activity records in this range.',
     '重新应用': 'Re-apply',
     '还原原始配置': 'Restore Original Config',
-    '连接信息': 'Connection Info',
+    'WorkBuddy 连接信息': 'WorkBuddy Connection Info',
     '本机客户端': 'Local Clients',
     '第三方上游': 'Third-Party Upstream',
     '将网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已配置的客户端会自动重新应用，检测到但尚未配置的客户端会自动一键配置。': 'Temporarily route the gateway at another OpenAI-compatible service. While on, the proxy talks to the URL below instead of workbuddy; configured clients are re-applied automatically, and detected but unconfigured clients are set up automatically.',
@@ -4519,8 +4519,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     <section>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div>
-          <h2 style="margin:0">连接信息 <em id="agentConnState"></em></h2>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">写入各客户端配置时使用的网关地址、鉴权 Key 与默认模型。</div>
+          <h2 style="margin:0">WorkBuddy 连接信息 <em id="agentConnState"></em></h2>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">仅用于 WorkBuddy 出口：写入客户端配置时使用的网关地址、鉴权 Key 与默认模型。</div>
         </div>
         <button class="sec mini" onclick="loadAgents(true)" title="重新检测本机客户端">刷新</button>
       </div>
@@ -4547,24 +4547,13 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <div style="font-size:12px;color:var(--dim);margin-top:10px">「全局 API Key」表示不在客户端配置里写入具体 Key，客户端沿用网关当前生效的全局 Key。</div>
     </section>
 
-    <section>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-        <div>
-          <h2 style="margin:0">本机客户端 <em id="agentDetectState"></em></h2>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">检测到以下客户端安装在本机；点击「一键配置」即可让它改走本网关，原配置自动备份，可随时还原。配置完成后会自动重启正在运行的客户端，让新配置立刻生效。</div>
-        </div>
-      </div>
-      <div id="agentCardGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px"></div>
-    </section>
-
     <!-- 第三方上游：把网关的出口临时换成别人家的 OpenAI 兼容 API。
-         启用后本机反代不再访问 workbuddy，改访问这里填的地址；智能体接入
-         不受影响（客户端连的是网关，不是上游）。关闭后恢复 workbuddy。 -->
+         选择智能体后只同步这一台客户端；WorkBuddy 连接信息不受影响。 -->
     <section>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div>
           <h2 style="margin:0">第三方上游 <em id="tpState"></em></h2>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">把网关出口临时换成其它 OpenAI 兼容服务。启用后反代会去访问你填的地址而不是 workbuddy；已配置的客户端会自动重新应用，检测到但尚未配置的客户端会自动一键配置。</div>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">切换网关出口到其它 OpenAI 兼容服务。启用时必须选择一个智能体；只会重新应用并重启这个智能体，WorkBuddy 连接信息保持不变。</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="sec mini" onclick="tpProbe()">测试连接 / 刷新模型</button>
@@ -4582,10 +4571,34 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
           <input id="tpApiKey" type="password" placeholder="sk-..."
                  style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
         </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:12px;color:var(--dim);margin-bottom:4px">使用第三方上游的智能体</div>
+          <select id="tpAgentSelect"
+                  style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
+            <option value="">请选择智能体</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:12px;color:var(--dim);margin-bottom:4px">默认模型（可选）</div>
+          <select id="tpDefaultModel"
+                  style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
+            <option value="">不指定，使用客户端默认模型</option>
+          </select>
+        </div>
       </div>
-      <div style="font-size:12px;color:var(--dim);margin-top:10px">Key 只保存在本机 accounts 目录，不会离开这台机器。启用时会立即读取该服务的模型列表并写进网关。</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:10px">Key 只保存在本机 accounts 目录，不会离开这台机器。启用时会立即读取该服务的模型列表并写进所选客户端。</div>
       <div id="tpModels" style="font-size:12px;color:var(--dim);margin-top:8px"></div>
       <div id="tpError" style="font-size:12px;color:var(--bad);margin-top:6px"></div>
+    </section>
+
+    <section>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <div>
+          <h2 style="margin:0">本机客户端 <em id="agentDetectState"></em></h2>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">检测到以下客户端安装在本机；点击「一键配置」即可让它改走本网关，原配置自动备份，可随时还原。配置完成后会自动重启正在运行的客户端，让新配置立刻生效。</div>
+        </div>
+      </div>
+      <div id="agentCardGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px"></div>
     </section>
 
     <section>
@@ -11542,7 +11555,9 @@ function renderAgentCards(){
     // what actually decides the model list - the global switch only covers
     // unbound requests - so show it right above the models.
     let appliedKeyLabel = '-';
-    if(applied && applied.key_id){
+    if(applied && applied.upstream){
+      appliedKeyLabel = '第三方上游（独立 API Key）';
+    } else if(applied && applied.key_id){
       const k = (AGENT_KEYS || []).find(x => String(x.id) === String(applied.key_id));
       if(k){
         appliedKeyLabel = (k.name || k.id) + (k.realm
@@ -11566,8 +11581,12 @@ function renderAgentCards(){
       appliedHtml = '<div style="font-size:11px;color:var(--dim);margin-top:8px;line-height:1.7">'
         + '<div>应用时间: <span class="mono">' + at + '</span></div>'
         + '<div>网关出口: <span class="mono">' + esc(appliedKeyLabel) + '</span></div>'
+        + (applied.upstream
+            ? '<div>上游: <span class="badge" style="background:rgba(217,160,60,.18);color:#d9a03c">' + esc(applied.upstream) + '</span></div>'
+              + '<div>第三方地址: <span class="mono">' + esc(applied.upstream_base_url || '-') + '</span></div>'
+            : '')
         + '<div>base_url: <span class="mono">' + esc(applied.base_url || '-') + '</span></div>'
-        + '<div>模型: <span class="mono">' + esc(applied.model || '(未指定)') + '</span></div>'
+        + '<div>模型: <span class="mono">' + esc(applied.upstream_model || applied.model || '(未指定)') + '</span></div>'
         + '</div>';
       if(applied.external_change){
         warnHtml = '<div class="badge warn" style="margin-top:8px" title="配置文件在应用之后被外部修改过">'
@@ -11645,6 +11664,7 @@ async function applyAgent(id, btn){
     } else {
       const rst = (r && r.restart) || null;
       let msg = '已配置「' + (client.label || id) + '」，原配置已备份';
+      if(r && r.thirdparty_disabled) msg += '，已切回 WorkBuddy 出口';
       if(rst && rst.started){
         msg += '，并已重启该客户端';
       } else if(rst && rst.running === false){
@@ -11718,6 +11738,8 @@ function tpRender(){
   const btn = document.getElementById('tpToggleBtn');
   const err = document.getElementById('tpError');
   const models = document.getElementById('tpModels');
+  const agentSel = document.getElementById('tpAgentSelect');
+  const modelSel = document.getElementById('tpDefaultModel');
   if(!TP) return;
   if(st){
     st.textContent = TP.enabled ? '(已启用)' : '(未启用)';
@@ -11734,6 +11756,35 @@ function tpRender(){
   const key = document.getElementById('tpApiKey');
   if(base && !base.value && TP.base_url) base.value = TP.base_url;
   if(key && !key.value) key.placeholder = TP.api_key_set ? '（已保存，留空则不修改）' : 'sk-...';
+  if(agentSel){
+    const prev = agentSel.value || TP.client_id || '';
+    const clients = agentClients().filter(c => c.installed || c.configured || c.applied);
+    let html = '<option value="">请选择智能体</option>';
+    clients.forEach(c => {
+      const id = c.id || '';
+      if(!id) return;
+      const label = (c.label || id)
+        + (c.configured || c.applied ? '（已配置）' : '（未配置，启用时自动一键配置）');
+      html += '<option value="' + esc(id) + '">' + esc(label) + '</option>';
+    });
+    agentSel.innerHTML = html;
+    if(prev && agentSel.querySelector('option[value="' + prev.replace(/"/g, '\\"') + '"]')){
+      agentSel.value = prev;
+    }
+  }
+  if(modelSel){
+    const prev = modelSel.value || TP.default_model || '';
+    let html = '<option value="">不指定，使用客户端默认模型</option>';
+    (TP.models || []).forEach(mid => {
+      const id = typeof m === 'string' ? m : (m && (m.id || m.model) || '');
+      if(!id) return;
+      html += '<option value="' + esc(id) + '">' + esc(id) + '</option>';
+    });
+    modelSel.innerHTML = html;
+    if(prev && modelSel.querySelector('option[value="' + prev.replace(/"/g, '\\"') + '"]')){
+      modelSel.value = prev;
+    }
+  }
   if(err){
     err.textContent = TP.models_error || '';
     err.style.display = TP.models_error ? '' : 'none';
@@ -11741,10 +11792,10 @@ function tpRender(){
   if(models){
     const n = (TP.models || []).length;
     if(TP.enabled && n){
-      models.innerHTML = '该服务当前模型 <b>' + n + '</b> 个：'
+    models.innerHTML = '该服务当前模型 <b>' + n + '</b> 个：'
         + (TP.models.slice(0, 12).map(m => '<span class="mono">' + esc(m) + '</span>').join('、 '))
         + (n > 12 ? ' …' : '')
-        + '<div style="margin-top:4px">启用时会自动同步已配置和已检测到的本地客户端。</div>';
+        + '<div style="margin-top:4px">启用时只会同步并重启上面选中的智能体。</div>';
     } else if(TP.enabled){
       models.textContent = '尚未取到模型列表，点「测试连接 / 刷新模型」。';
     } else {
@@ -11758,9 +11809,20 @@ function tpRender(){
 async function tpSave(){
   const base = document.getElementById('tpBaseUrl');
   const key = document.getElementById('tpApiKey');
-  const body = { base_url: base ? base.value.trim() : '', api_key: key ? key.value.trim() : '' };
+  const agentSel = document.getElementById('tpAgentSelect');
+  const modelSel = document.getElementById('tpDefaultModel');
+  const body = {
+    base_url: base ? base.value.trim() : '',
+    api_key: key ? key.value.trim() : '',
+    client_id: agentSel ? agentSel.value : '',
+    default_model: modelSel ? modelSel.value : ''
+  };
   if(!body.base_url || (!body.api_key && !(TP && TP.api_key_set))){
     toast('Base URL 与 API Key 都要填', 'warn');
+    return null;
+  }
+  if(!body.client_id){
+    toast('请选择使用第三方上游的智能体', 'warn');
     return null;
   }
   try {
@@ -11814,7 +11876,14 @@ async function tpToggle(){
 async function tpProbe(){
   const base = document.getElementById('tpBaseUrl');
   const key = document.getElementById('tpApiKey');
-  const body = { base_url: base ? base.value.trim() : '', api_key: key ? key.value.trim() : '' };
+  const agentSel = document.getElementById('tpAgentSelect');
+  const modelSel = document.getElementById('tpDefaultModel');
+  const body = {
+    base_url: base ? base.value.trim() : '',
+    api_key: key ? key.value.trim() : '',
+    client_id: agentSel ? agentSel.value : '',
+    default_model: modelSel ? modelSel.value : ''
+  };
   const btn = document.getElementById('tpProbeBtn');
   if(btn) btn.disabled = true;
   try {

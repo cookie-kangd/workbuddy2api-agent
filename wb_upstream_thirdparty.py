@@ -67,6 +67,8 @@ def load(accounts_dir):
         "enabled": data.get("enabled") is True,
         "base_url": str(data.get("base_url") or "").strip(),
         "api_key": _clean_api_key(data.get("api_key")),
+        "client_id": str(data.get("client_id") or "").strip(),
+        "default_model": str(data.get("default_model") or "").strip(),
         # Cached on the profile so the panel can render the model list without
         # a round trip; refreshed by probe_models().
         "models": [str(m) for m in (data.get("models") or []) if str(m).strip()],
@@ -88,10 +90,18 @@ def save(accounts_dir, profile):
         # empty field means "keep it", not "erase it"; otherwise a probe turns
         # the next request into `Authorization: Bearer ` with no token.
         api_key = _clean_api_key(profile.get("api_key")) or current.get("api_key") or ""
+        raw_client = (profile.get("client_id") if "client_id" in profile
+                      else current.get("client_id"))
+        raw_default = (profile.get("default_model") if "default_model" in profile
+                       else current.get("default_model"))
+        client_id = str(raw_client or "").strip()
+        default_model = str(raw_default or "").strip()
         payload = {
             "enabled": profile.get("enabled") is True,
             "base_url": str(profile.get("base_url") or "").strip(),
             "api_key": api_key,
+            "client_id": client_id,
+            "default_model": default_model,
             "updated_at": time.time(),
         }
         same_endpoint = (payload["base_url"] == current.get("base_url")
@@ -236,6 +246,8 @@ def describe(accounts_dir):
         "enabled": profile["enabled"],
         "base_url": profile["base_url"],
         "api_key_set": bool(profile["api_key"]),
+        "client_id": profile["client_id"],
+        "default_model": profile["default_model"],
         "models": profile["models"],
         "models_at": profile["models_at"],
         "models_error": profile["models_error"],
