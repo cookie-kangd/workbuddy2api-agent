@@ -11437,6 +11437,16 @@ async function copyAgentUrl(elId, btn){
   }
 }
 
+function agentPickerModels(){
+  // What the model dropdown is currently showing - already scoped to the
+  // selected key's bound exit by renderAgentConnForm().
+  const keySel = document.getElementById('agentKeySelect');
+  const sel = keySel ? keySel.value : '';
+  const key = (AGENT_KEYS || []).find(k => String(k.id) === String(sel));
+  const realm = key ? (key.realm || '') : '';
+  return realm ? (AGENT_MODELS_BY_REALM[realm] || []) : AGENT_MODELS;
+}
+
 function agentProtocolLabel(p){
   return p === 'anthropic' ? 'Anthropic Messages' : 'OpenAI 兼容';
 }
@@ -11547,7 +11557,10 @@ async function applyAgent(id, btn){
       base_url: baseUrl,
       key_id: keySel ? keySel.value : '',
       model: modelSel ? modelSel.value : '',
-      models: (AGENT_MODELS || []).map(m => (typeof m === 'object' ? (m.id || '') : m)).filter(Boolean),
+      // The picker is already scoped to the selected key's exit
+      // (renderAgentConnForm), so send exactly what it shows - not the
+      // global list, or entries the other exit does not serve would 403.
+      models: (agentPickerModels() || []).map(m => (typeof m === 'object' ? (m.id || '') : m)).filter(Boolean),
       // Restart the client afterwards so the file we just wrote is actually
       // read; the server only restarts one that is running.
       restart: true
