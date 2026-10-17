@@ -35,6 +35,19 @@ DEFAULT_HEADER_TIMEOUT = 60
 _lock = threading.Lock()
 _cache = {"at": 0.0, "models": None}
 _CACHE_TTL = 60.0
+_BEARER_PREFIX = re.compile(r"^bearer\s+", re.I)
+_VERSION_SUFFIX = re.compile(r"/v\d+(?:beta\d*)?$", re.I)
+
+
+def _clean_api_key(value):
+    """Store the credential, not the transport prefix.
+
+    Operators sometimes paste a complete ``Authorization`` value into the Key
+    field. Accept both that and the bare key, but never persist ``Bearer``:
+    every request builder adds exactly one prefix at the wire boundary.
+    """
+    key = str(value or "").strip()
+    return _BEARER_PREFIX.sub("", key).strip()
 
 
 def config_path(accounts_dir):
@@ -53,7 +66,7 @@ def load(accounts_dir):
     return {
         "enabled": data.get("enabled") is True,
         "base_url": str(data.get("base_url") or "").strip(),
-        "api_key": str(data.get("api_key") or "").strip(),
+        "api_key": _clean_api_key(data.get("api_key")),
         # Cached on the profile so the panel can render the model list without
         # a round trip; refreshed by probe_models().
         "models": [str(m) for m in (data.get("models") or []) if str(m).strip()],
@@ -70,10 +83,15 @@ def save(accounts_dir, profile):
     """
     with _lock:
         current = load(accounts_dir)
+        # The panel deliberately leaves a saved credential blank when the
+        # operator only wants to test or re-enable the existing endpoint. An
+        # empty field means "keep it", not "erase it"; otherwise a probe turns
+        # the next request into `Authorization: Bearer ` with no token.
+        api_key = _clean_api_key(profile.get("api_key")) or current.get("api_key") or ""
         payload = {
             "enabled": profile.get("enabled") is True,
             "base_url": str(profile.get("base_url") or "").strip(),
-            "api_key": str(profile.get("api_key") or "").strip(),
+            "api_key": api_key,
             "updated_at": time.time(),
         }
         same_endpoint = (payload["base_url"] == current.get("base_url")
@@ -101,14 +119,15 @@ def normalise_chat_url(base_url):
 
     Someone pasting `https://api.example.com/v1` and someone pasting
     `https://api.example.com/v1/chat/completions` mean the same endpoint, and
-    neither should end up with a doubled path.
+    neither should end up with a doubled path. The same applies to providers
+    whose version segment is not `/v1` (for example GLM's `/api/paas/v4`).
     """
     url = str(base_url or "").strip().rstrip("/")
     if not url.startswith(("http://", "https://")):
         return None
     if url.endswith("/chat/completions"):
         return url
-    if url.endswith("/v1"):
+    if _VERSION_SUFFIX.search(url):
         return url + "/chat/completions"
     return url + "/v1/chat/completions"
 
@@ -126,11 +145,11 @@ def probe_models(accounts_dir, timeout=30):
 
     Returns (models, error): an empty list plus an error string means the
     endpoint could not be reached or refused the key. Never raises, so a bad
-    URL cannot take the panel down with it.
+    URL cannot take the panel down with it. This intentionally works while the
+    switch is off: the panel's "test connection" must be able to validate an
+    endpoint before the operator replaces the live WorkBuddy exit.
     """
     profile = load(accounts_dir)
-    if not profile["enabled"]:
-        return [], "third-party upstream is disabled"
     if not profile["base_url"] or not profile["api_key"]:
         return [], "base_url and api_key are required"
     base = normalise_chat_url(profile["base_url"])

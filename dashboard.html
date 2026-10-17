@@ -11759,7 +11759,7 @@ async function tpSave(){
   const base = document.getElementById('tpBaseUrl');
   const key = document.getElementById('tpApiKey');
   const body = { base_url: base ? base.value.trim() : '', api_key: key ? key.value.trim() : '' };
-  if(!body.base_url || !body.api_key){
+  if(!body.base_url || (!body.api_key && !(TP && TP.api_key_set))){
     toast('Base URL 与 API Key 都要填', 'warn');
     return null;
   }

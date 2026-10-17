@@ -10176,7 +10176,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.11",
+        "version": "0.1.12",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16386,7 +16386,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.11"
+    server_version = "wb-proxy/0.1.12"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -18283,7 +18283,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(401, "panel password required", "invalid_request_error")
         base_url = str(payload.get("base_url") or "").strip()
         api_key = str(payload.get("api_key") or "").strip()
-        if not base_url or not api_key:
+        current = thirdparty_module().load(ACCOUNTS_DIR)
+        # An empty field means "keep the saved value". The panel intentionally
+        # hides the key after saving, so requiring it again would make the
+        # documented re-enable path impossible and invites accidental erasure.
+        base_url = base_url or current.get("base_url") or ""
+        if not base_url or not (api_key or current.get("api_key")):
             return self._error(400, "base_url and api_key are both required",
                                "invalid_request_error")
         if not re.match(r"^https?://", base_url):
@@ -18306,9 +18311,11 @@ class Handler(BaseHTTPRequestHandler):
         base_url = str(payload.get("base_url") or "").strip()
         api_key = str(payload.get("api_key") or "").strip()
         if base_url or api_key:
+            current = thirdparty_module().load(ACCOUNTS_DIR)
             thirdparty_module().save(
                 ACCOUNTS_DIR, {"enabled": thirdparty_module().is_enabled(ACCOUNTS_DIR),
-                               "base_url": base_url, "api_key": api_key})
+                               "base_url": base_url or current.get("base_url"),
+                               "api_key": api_key})
         models, error = thirdparty_module().probe_models(ACCOUNTS_DIR)
         return self._json(200, {"models": models, "error": error,
                                 "profile": thirdparty_module().describe(ACCOUNTS_DIR)})
