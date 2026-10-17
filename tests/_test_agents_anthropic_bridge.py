@@ -53,6 +53,8 @@ class _Handler(object):
     _handle_agents_apply = P.Handler._handle_agents_apply
     _agents_resolve_key = P.Handler._agents_resolve_key
     _agents_models = P.Handler._agents_models
+    _agents_models_for = P.Handler._agents_models_for
+    _agents_key_realm = P.Handler._agents_key_realm
     _agents_maybe_restart = P.Handler._agents_maybe_restart
 
     def __init__(self, accounts_dir, home_dir):

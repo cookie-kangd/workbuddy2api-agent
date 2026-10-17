@@ -660,9 +660,15 @@ class MockHandler:
     def _agents_resolve_key(self, payload, warnings):
         return "mock-key-123"
 
+    def _agents_key_realm(self, payload):
+        return ""
+
     def _agents_models(self):
         return [{"id": "model-fallback-1", "context_window": 128000},
                 {"id": "model-fallback-2", "context_window": 32000}]
+
+    def _agents_models_for(self, realm):
+        return self._agents_models()
 
     def _agents_maybe_restart(self, wb_agents, client_id, wanted):
         # This suite drives the handler with a fake home on a machine where the
@@ -943,6 +949,38 @@ try:
     check("should have raised AgentConfigError", False)
 except Exception as exc:
     check("raised AgentConfigError not NameError", isinstance(exc, wb_agents.AgentConfigError), type(exc))
+
+print()
+print("[31] the picker's model list follows the selected key's bound exit")
+
+_orig_configured_keys = P.configured_keys
+P.configured_keys = lambda: [{"id": "cn-bound-id", "key": "sk-cn", "realm": "cn", "enabled": True},
+                             {"id": "intl-bound-id", "key": "sk-intl", "realm": "intl", "enabled": True}]
+
+# A key bound to cn must write cn models: entries only the international exit
+# serves (gpt-*, gemini-*) would 403 at request time and the config and the key
+# would disagree about which exit the client is on.
+h31 = P.Handler.__new__(P.Handler)
+intl_ids = [m["id"] for m in h31._agents_models_for("intl")]
+cn_ids = [m["id"] for m in h31._agents_models_for("cn")]
+check("the international list contains gpt models",
+      any(i.startswith("gpt-") for i in intl_ids), intl_ids[:6])
+check("the cn list excludes gpt models",
+      not any(i.startswith("gpt-") for i in cn_ids), [i for i in cn_ids if i.startswith("gpt-")])
+check("the cn list contains deepseek-v4-pro",
+      "deepseek-v4-pro" in cn_ids, cn_ids)
+check("the international list excludes deepseek-v4-pro",
+      "deepseek-v4-pro" not in intl_ids, intl_ids)
+check("an unbound list falls back to the global switch",
+      h31._agents_models_for("") == h31._agents_models_for(None), None)
+
+check("the key realm resolver reads the binding",
+      P.Handler._agents_key_realm(h31, {"key_id": "cn-bound-id"}) == "cn", None)
+check("the global key follows the global switch",
+      P.Handler._agents_key_realm(h31, {"key_id": "__global"}) == "", None)
+check("an unknown key id falls back to the global switch",
+      P.Handler._agents_key_realm(h31, {"key_id": "nope"}) == "", None)
+P.configured_keys = _orig_configured_keys
 
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

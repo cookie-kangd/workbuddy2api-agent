@@ -11318,6 +11318,7 @@ function switchMainTab(tab){
    这里只用 getJSON/postJSON/toast/esc，接口字段缺省时尽量降级展示而不是报错。 */
 let AGENTS_DATA = null;
 let AGENT_MODELS = [];
+let AGENT_MODELS_BY_REALM = {};
 let AGENT_KEYS = [];
 let AGENTS_LOADING = false;
 
@@ -11335,6 +11336,9 @@ async function loadAgents(showToast){
     const data = await getJSON('/agents');
     AGENTS_DATA = data || {};
     AGENT_MODELS = AGENTS_DATA.models || [];
+    // Per-exit model lists, so the picker can follow the selected key's bound
+    // exit instead of always offering the global switch's models.
+    AGENT_MODELS_BY_REALM = AGENTS_DATA.models_by_realm || {};
     AGENT_KEYS = AGENTS_DATA.keys || AGENTS_DATA.api_keys || [];
     renderAgentConnForm();
     renderAgentCards();
@@ -11385,7 +11389,18 @@ function renderAgentConnForm(){
   if(modelSel){
     const prev = modelSel.value;
     let html = '<option value="">(不指定模型)</option>';
-    AGENT_MODELS.forEach(m => {
+    // Model list follows the selected key's bound exit: a key pinned to cn
+    // must write cn models, or picker entries that only the other exit serves
+    // turn into 403s at request time.
+    const keySel = document.getElementById('agentKeySelect');
+    const sel = keySel ? keySel.value : '';
+    const key = (AGENT_KEYS || []).find(k => String(k.id) === String(sel));
+    const realm = key ? (key.realm || '') : '';
+    if(keySel && !keySel.dataset.bound){
+      keySel.dataset.bound = '1';
+      keySel.addEventListener('change', renderAgentConnForm);
+    }
+    (realm ? (AGENT_MODELS_BY_REALM[realm] || []) : AGENT_MODELS).forEach(m => {
       const id = typeof m === 'string' ? m : (m.id || m.model || '');
       if(!id) return;
       const cw = (typeof m === 'object' && m) ? (m.context_window || m.contextWindow || 0) : 0;

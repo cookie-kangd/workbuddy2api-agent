@@ -165,7 +165,7 @@ def fake_fetch(realm=None):
 
 P.fetch_models = fake_fetch
 try:
-    listed = P.Handler._agents_models(None)
+    listed = P.Handler._agents_models_for(None, None)
 finally:
     P.fetch_models = real_fetch
 by_id2 = {m["id"]: m for m in listed}

@@ -10024,7 +10024,7 @@ def runtime_settings_view():
         "accounts_dir": ACCOUNTS_DIR,
         "usage_dir": USAGE_DIR,
         "settings_file": wb_settings.settings_path(ACCOUNTS_DIR),
-        "version": "0.1.5",
+        "version": "0.1.6",
     }
 def current_account():
     """Account used for display purposes (health / usage summaries)."""
@@ -16198,7 +16198,7 @@ class Handler(BaseHTTPRequestHandler):
             super().finish()
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
             pass
-    server_version = "wb-proxy/0.1.5"
+    server_version = "wb-proxy/0.1.6"
     def log_message(self, fmt, *args):
         # 静默过滤前端看板高频定时心跳的正常 200 GET 请求（/logs、/usage、/accounts 轮询等）
         # 避免自增死循环刷屏与日志污染。遇 4xx/5xx 异常或所有非 GET 业务操作依然如实记录。
@@ -17912,20 +17912,39 @@ class Handler(BaseHTTPRequestHandler):
         even when the upstream is down, so a failure here is simply a shorter
         list, never an error.
         """
+        return self._agents_models_for(None)
+
+    def _agents_models_for(self, realm):
+        """Model list for the picker, scoped to one exit.
+
+        `realm` is the exit bound to the key the panel is configuring with
+        ("" or None = the global switch). A key bound to cn must write cn
+        models into the client, or every picker entry that only the
+        international exit serves turns into a 403 at request time - the
+        config and the key would disagree about which exit the client is on.
+        """
         models = []
         seen = set()
         try:
             try:
-                entries = fetch_models()
+                entries = fetch_models(realm or None)
             except Exception:
                 entries = []
             if entries:
                 sources = ((mid, meta) for mid, meta in entries)
             else:
+                static = {
+                    "cn": getattr(wb_catalog, "STATIC_CN_MODELS", []),
+                    "intl": getattr(wb_catalog, "STATIC_INTL_MODELS", []),
+                }.get(realm or "") if realm else (
+                    list(getattr(wb_catalog, "STATIC_INTL_MODELS", []))
+                    + list(getattr(wb_catalog, "STATIC_CN_MODELS", [])))
+                if static is None:
+                    static = (list(getattr(wb_catalog, "STATIC_INTL_MODELS", []))
+                              + list(getattr(wb_catalog, "STATIC_CN_MODELS", [])))
                 sources = (
                     (item.get("id"), item)
-                    for item in (list(getattr(wb_catalog, "STATIC_INTL_MODELS", []))
-                                 + list(getattr(wb_catalog, "STATIC_CN_MODELS", [])))
+                    for item in static
                     if isinstance(item, dict)
                 )
             for mid, meta in sources:
@@ -18046,6 +18065,7 @@ class Handler(BaseHTTPRequestHandler):
                         "id": entry.get("id"),
                         "name": entry.get("name") or "",
                         "enabled": True,
+                        "realm": entry.get("realm") or "",
                     })
         except Exception:
             keys = []
@@ -18053,6 +18073,12 @@ class Handler(BaseHTTPRequestHandler):
             "enabled": True,
             "clients": list(wb_agents.overview(ACCOUNTS_DIR).values()),
             "models": self._agents_models(),
+            # Per-exit lists for the picker: the panel follows the selected
+            # key's bound exit (see _agents_models_for).
+            "models_by_realm": {
+                "intl": self._agents_models_for("intl"),
+                "cn": self._agents_models_for("cn"),
+            },
             "keys": keys,
             "global_key_set": bool(API_KEY),
             "auth_required": auth_required(),
@@ -18190,6 +18216,22 @@ class Handler(BaseHTTPRequestHandler):
                 return entry.get("key") or None
         return None
 
+    def _agents_key_realm(self, payload):
+        """The exit bound to the key this apply is configuring with.
+
+        The picker's model list has to match: a key bound to cn must write cn
+        models, or entries only the international exit serves 403 at request
+        time. Falls back to "" (follow the global switch) for the global key
+        and for unknown ids.
+        """
+        key_id = str(payload.get("key_id") or "").strip()
+        if key_id == "__global":
+            return ""
+        for entry in configured_keys():
+            if entry.get("id") == key_id:
+                return entry.get("realm") or ""
+        return ""
+
     def _handle_agents_apply(self, payload):
         wb_agents = agents_module()
         client_id = str(payload.get("client") or payload.get("client_id") or "").strip()
@@ -18201,19 +18243,20 @@ class Handler(BaseHTTPRequestHandler):
                 400, "base_url must start with http:// or https://",
                 "invalid_request_error")
         model = str(payload.get("model") or "").strip() or None
+        key_realm = self._agents_key_realm(payload)
         models = payload.get("models")
         if not models:
             # Fall back to the gateway's discovered catalog so clients that embed
             # model definitions (OpenCode, DSH, Crush, ZCode) receive the full
             # model list even when the front-end omitted the field.
-            models = self._agents_models()
+            models = self._agents_models_for(key_realm)
         else:
             # The panel sends only model id strings. Re-attach capability
             # metadata (input_modalities / reasoning_efforts / ...) from the
             # gateway catalog so the Codex desktop-app model catalog is rich
             # instead of text-only with no reasoning controls.
             enriched = {}
-            for item in self._agents_models():
+            for item in self._agents_models_for(key_realm):
                 if isinstance(item, dict) and item.get("id"):
                     enriched[str(item["id"])] = item
             reattached = []
@@ -18241,7 +18284,7 @@ class Handler(BaseHTTPRequestHandler):
         # 写出来的模型列表只有 id，客户端就只能吃自己的内置默认值。
         try:
             specs = {}
-            for spec in self._agents_models():
+            for spec in self._agents_models_for(key_realm):
                 if isinstance(spec, dict) and spec.get("id"):
                     specs[str(spec["id"])] = spec
         except Exception:
