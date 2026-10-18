@@ -25,7 +25,10 @@ wrt/
 | `workbuddy2api_<版本>-<发布号>_all.ipk` | opkg 系（OpenWrt 24.10 及更早） | `opkg install <文件>` |
 | `workbuddy2api-<版本>-r<发布号>.apk` | apk-tools 3（OpenWrt 25.x） | `apk add --allow-untrusted <文件>`（未签名时） |
 
-依赖（两套系统同名）：`python3-light`、`python3-urllib`、`python3-uuid`。
+依赖（两套系统同名）：`python3-light`、`python3-urllib`、`python3-uuid`、
+`python3-openssl`、`python3-sqlite3`、`python3-codecs`。OpenWrt 为了省空间把
+ssl、sqlite3 和完整编码表拆成了独立包，缺任何一个都会在启动或首次解析域名时
+报 `ModuleNotFoundError`。
 
 ## 本地构建
 

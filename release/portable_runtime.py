@@ -60,8 +60,6 @@ DROP_DLLS = ("_ctypes_test.pyd", "_testbuffer.pyd", "_testcapi.pyd", "_testclini
              "_testmultiphase.pyd", "_testsinglephase.pyd", "_tkinter.pyd",
              "tcl86t.dll", "tk86t.dll", "zlib1.dll")
 
-DROP_ROOT_FILES = ("pythonw.exe",)
-
 # Everything with these extensions goes, wherever it lives: the build ships
 # debug symbols for every binary, and stale bytecode caches.
 DROP_SUFFIXES = (".pdb", ".pyc")
@@ -72,7 +70,7 @@ DROP_SUFFIXES = (".pdb", ".pyc")
 # modules (ast-walked from wb_*.py) - so the trim may not take any of them,
 # and their extension modules have to survive with them.
 REQUIRED_FILES = (
-    "python.exe", "python3.dll", "python312.dll",
+    "python.exe", "pythonw.exe", "python3.dll", "python312.dll",
     "vcruntime140.dll", "vcruntime140_1.dll", "LICENSE.txt",
     "Lib/os.py", "Lib/io.py", "Lib/ssl.py", "Lib/hashlib.py", "Lib/hmac.py",
     "Lib/socket.py",
@@ -94,7 +92,7 @@ REQUIRED_FILES = (
 
 # Absent from the shipped package, so they must stay absent here too.
 FORBIDDEN_PATHS = (
-    "Scripts", "include", "libs", "tcl", "pythonw.exe",
+    "Scripts", "include", "libs", "tcl",
     "Lib/multiprocessing", "Lib/tkinter", "Lib/idlelib", "Lib/lib2to3",
     "Lib/ensurepip", "Lib/site-packages", "Lib/venv", "Lib/turtledemo",
     "Lib/pydoc_data", "DLLs/_tkinter.pyd", "DLLs/tcl86t.dll", "DLLs/tk86t.dll",
@@ -117,8 +115,6 @@ def keep(rel):
     """
     parts = rel.split("/")
     if len(parts) > 1 and parts[0] in DROP_TOP_DIRS:
-        return False
-    if parts[0] in DROP_ROOT_FILES:
         return False
     if any(p in DROP_LIB_DIRS for p in parts[1:]):
         return False

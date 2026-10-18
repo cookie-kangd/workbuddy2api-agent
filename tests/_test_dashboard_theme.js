@@ -49,6 +49,7 @@ function makeElement(id) {
     title: '',
     attrs: {},
     contains: () => false,
+    querySelectorAll: () => [],
     setAttribute(k, v) { this.attrs[k] = v; },
     getAttribute(k) { return this.attrs[k]; },
     classList: {
@@ -68,21 +69,29 @@ function makeElement(id) {
 function makeHarness(seed) {
   const elements = new Map();
   for (const id of ['themeToggleIcon', 'themeToggleBtn', 'themeDropdown', 'themeDropdownWrap',
-                    'themeOptLight', 'themeOptDark', 'themeOptSystem']) {
+                    'themeOptLight', 'themeOptDark', 'themeOptSystem', 'themeOptClaude', 'themeOptMaterial', 'themeOptMiuix']) {
     elements.set(id, makeElement(id));
   }
+  const styleOpts = ['claude','material','miuix'].map(x => {
+    const e = elements.get('themeOpt' + (x==='miuix'?'Miuix':x[0].toUpperCase()+x.slice(1)));
+    e.getAttribute = k => k === 'data-theme-style-option' ? x : undefined;
+    return e;
+  });
+  elements.get('themeDropdown').querySelectorAll = sel => sel === '[data-theme-style-option]' ? styleOpts : [];
   const docListeners = {};
   const mediaListeners = [];
   const media = { matches: !!seed.systemDark, addEventListener(type, fn) { mediaListeners.push(fn); } };
   const store = new Map(seed.stored === undefined ? [] : [['wb-theme', seed.stored]]);
+  if(seed.styleStored !== undefined) store.set('wb-theme-style', seed.styleStored);
 
   const documentElement = makeElement('html');
-  documentElement.style = {};
+  documentElement.style = { setProperty() {}, getPropertyValue() { return ""; } };
 
   const win = { matchMedia: () => media };
   const doc = {
     documentElement,
     getElementById: (id) => elements.get(id) || null,
+    querySelectorAll: (sel) => sel === '[data-theme-style-option]' ? ['claude','material','miuix'].map(x => { const e=elements.get('themeOpt'+x[0].toUpperCase()+x.slice(1)); e.getAttribute = k => k === 'data-theme-style-option' ? x : undefined; return e; }) : [],
     addEventListener: (type, fn) => { (docListeners[type] = docListeners[type] || []).push(fn); },
   };
   const storage = {
@@ -112,7 +121,7 @@ const mentioned = new Set([
 const mustBeGlobal = [...mentioned].filter((name) => handlers.has(name)).sort();
 
 // 这一条同时防止「提取坏了」：主题块就该导出这两个处理器
-assert.deepStrictEqual(mustBeGlobal, ['selectTheme', 'toggleThemeMenu'],
+assert.deepStrictEqual(mustBeGlobal, ['selectStyle', 'selectTheme', 'toggleThemeMenu'],
   `主题块里被内联属性引用的处理器应当恰好是 selectTheme / toggleThemeMenu，实得 ${mustBeGlobal.join(', ')}`);
 
 const h = makeHarness({});
@@ -186,6 +195,20 @@ inside.win.toggleThemeMenu(evt());
 inside.fire('click', { target: inside.el('themeOptDark') });
 assert.strictEqual(inside.el('themeDropdown').classList.contains('open'), true,
   '点菜单自己身上不该收起菜单');
+
+
+// 风格维度：五套预设均应可选择、持久化，且不影响旧的明暗偏好。
+for (const style of ['claude','material','miuix']) {
+  const t = makeHarness({stored:'light'});
+  t.win.selectStyle(style, evt());
+  assert.strictEqual(t.documentElement.getAttribute('data-theme-style'), style, style + ' 应写入 data-theme-style');
+  assert.strictEqual(t.store.get('wb-theme-style'), style, style + ' 应持久化');
+  t.win.selectTheme('dark', evt());
+  assert.strictEqual(t.documentElement.getAttribute('data-theme'), 'dark', style + ' dark 应生效');
+  assert.strictEqual(t.documentElement.getAttribute('data-theme-style'), style, style + ' 不应被明暗切换覆盖');
+}
+const styleDefault = makeHarness({stored:'light'});
+assert.strictEqual(styleDefault.documentElement.getAttribute('data-theme-style'), 'claude', '缺少 style 偏好时默认 Claude');
 
 console.log('dashboard theme assertions passed '
   + `(${mustBeGlobal.length} exported handlers, ${handlers.size} inline handlers swept)`);

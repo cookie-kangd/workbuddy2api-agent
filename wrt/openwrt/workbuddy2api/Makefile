@@ -43,7 +43,7 @@ define Package/workbuddy2api
   CATEGORY:=Network
   TITLE:=WorkBuddy multi-account gateway with OpenAI-compatible API
   URL:=https://github.com/cookie-kangd/workbuddy2api-agent
-  DEPENDS:=+python3-light +python3-urllib +python3-uuid
+  DEPENDS:=+python3-light +python3-urllib +python3-uuid +python3-openssl +python3-sqlite3 +python3-codecs
   PKGARCH:=all
 endef
 
@@ -52,8 +52,9 @@ define Package/workbuddy2api/description
   OpenAI 兼容 API 的多账号网关：/v1/chat/completions 与 /v1/responses，
   自带看板（8788 端口）做账号管理、用量统计、定价估算与每日自动任务。
 
-  纯 Python 标准库实现（上游不引入任何 pip 依赖），依赖只有 python3-light /
-  python3-urllib / python3-uuid 三个包；Windows 专属功能（从桌面客户端内存
+  纯 Python 标准库实现（上游不引入任何 pip 依赖）。OpenWrt 把 ssl、sqlite3
+  与完整编码表拆成了独立包，所以依赖里显式带上 python3-openssl /
+  python3-sqlite3 / python3-codecs；Windows 专属功能（从桌面客户端内存
   回收解码密钥）在 Linux 上自动跳过，账号用看板的浏览器 OAuth 添加。
 
   安装后不会自动启动服务，启用方法：

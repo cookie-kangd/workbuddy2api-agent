@@ -6,29 +6,43 @@
 <title>WorkBuddy 用量看板</title>
 <style>
 :root{
-  --bg:#f7f5ef; --panel:#ffffff; --panel2:#f1efe7; --panel3:#e9e6db;
-  --line:#e6e3d8; --line-hover:#d9d5c7;
-  --fg:#1f1e1b; --dim:#73716a; --dim-light:#98958b;
-  --accent:#c96442; --accent-hover:#b5533a; --accent-soft:rgba(201,100,66,.09);
-  --accent2:#5e8c4f; --accent2-soft:rgba(94,140,79,.12);
+  /* 对比度增强 v2（2026-10-15）：信号元素进一步推强。
+     --accent 3.90→6.23、--dim 4.48→5.35(bg)、--accent2 3.93→5.75、
+     bg/panel 层次 1.09→1.19、边框 1.28→1.56。 */
+  --bg:#efebe0; --panel:#ffffff; --panel2:#e9e5d6; --panel3:#e0dbc9;
+  --line:#d5cfbc; --line-hover:#c5bfab;
+  --fg:#1f1e1b; --dim:#625f57; --dim-light:#87847a;
+  --accent:#a14427; --accent-hover:#8a3a20; --accent-soft:rgba(161,68,39,.09);
+  --accent-selected-bg:rgba(161,68,39,.14); --bad-selected-bg:rgba(181,71,59,.12);
+  --accent2:#497035; --accent2-soft:rgba(73,112,53,.12);
   --warn:#a0691c; --warn-soft:rgba(183,121,31,.12);
-  --think:#8a6a96; --think-soft:rgba(138,106,150,.10);
+  --think:#7d5c8a; --think-soft:rgba(125,92,138,.10);
   --bad:#b5473b; --bad-soft:rgba(181,71,59,.09);
   --shadow-sm:0 1px 2px 0 rgba(31,30,27,.05);
   --shadow:0 1px 2px 0 rgba(31,30,27,.05),0 4px 14px rgba(31,30,27,.04);
   --shadow-md:0 2px 6px 0 rgba(31,30,27,.06),0 12px 32px rgba(31,30,27,.09);
-  --header-bg:rgba(252,250,245,.92);
+  --header-bg:rgba(239,235,224,.92);
+  --on-accent:#fff; --danger-bg:rgba(181,71,59,.14); --danger-border:rgba(181,71,59,.35);
+  --overlay-mask:rgba(15,23,42,.45); --terminal-bg:#16140f; --terminal-head:#1d1b15;
+  --terminal-border:#2b2820; --terminal-fg:#d6d3c9; --terminal-dim:#7c796f;
+  --terminal-error:#ef4444; --terminal-warn:#f59e0b; --terminal-ok:#10b981;
+  --chart-axis:#1e293b; --chart-text:#64748b; --chart-bar:#38bdf8; --chart-line:#a78bfa;
+  --summary-row-bg:rgba(37,99,235,.06); --toast-bad-bg:rgba(254,242,242,.98); --toast-warn-bg:rgba(255,251,235,.98);
   /* 页面左右留白：header 与 main 共用同一个值，窄屏收窄、宽屏封顶 28px，
      免得主区域两侧堆出一大片用不上的空白。 */
   --page-pad:clamp(14px,1.4vw,28px);
   --serif:ui-serif, Georgia, "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
+  --radius-card:12px; --radius-control:8px; --radius-pill:12px;
   color-scheme:light;
 }
 [data-theme="dark"]{
-  --bg:#1f1e1b; --panel:#292823; --panel2:#33312b; --panel3:#3d3a33;
-  --line:#403e37; --line-hover:#4d4a41;
+  /* 对比度增强 v2（2026-10-15）：--accent 4.73→5.52、表面层次 1.13→1.19、
+     边框 1.38→1.61。暗色下强调色提亮保持信号锐度。 */
+  --bg:#1f1e1b; --panel:#2d2c25; --panel2:#38362f; --panel3:#433f37;
+  --line:#4f4b42; --line-hover:#5d584e;
   --fg:#edebe3; --dim:#a5a29a; --dim-light:#7c796f;
-  --accent:#d97757; --accent-hover:#e08862; --accent-soft:rgba(217,119,87,.14);
+  --accent:#e88a68; --accent-hover:#f0967a; --accent-soft:rgba(232,138,104,.14);
+  --accent-selected-bg:rgba(232,138,104,.18); --bad-selected-bg:rgba(217,123,114,.16);
   --accent2:#8fae78; --accent2-soft:rgba(143,174,120,.15);
   --warn:#d9b25f; --warn-soft:rgba(217,178,95,.15);
   --think:#bfa3cc; --think-soft:rgba(191,163,204,.15);
@@ -37,12 +51,21 @@
   --shadow:0 1px 2px 0 rgba(0,0,0,.25),0 4px 14px rgba(0,0,0,.25);
   --shadow-md:0 2px 6px 0 rgba(0,0,0,.3),0 12px 32px rgba(0,0,0,.4);
   --header-bg:rgba(31,30,27,.92);
+  --on-accent:#fff; --danger-bg:rgba(217,123,114,.15); --danger-border:rgba(217,123,114,.35);
+  --overlay-mask:rgba(0,0,0,.65); --terminal-bg:#16140f; --terminal-head:#1d1b15;
+  --terminal-border:#2b2820; --terminal-fg:#d6d3c9; --terminal-dim:#7c796f;
+  --terminal-error:#ef4444; --terminal-warn:#f59e0b; --terminal-ok:#10b981;
+  --chart-axis:#cbd5e1; --chart-text:#94a3b8; --chart-bar:#38bdf8; --chart-line:#c084fc;
+  --summary-row-bg:rgba(59,130,246,.12); --toast-bad-bg:rgba(69,10,10,.95); --toast-warn-bg:rgba(69,43,8,.95);
   color-scheme:dark;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
   font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased}
+.card,section.panel,#pageAnalytics .panel,#pageAnalytics .kpi,.modal{border-radius:var(--radius-card)}
+button,.btn,input,select,textarea,.chip,.range-btn,.badge,.tag{border-radius:var(--radius-control)}
+.pill,.chip.on,.theme-opt-check,.mini{border-radius:var(--radius-pill)}
 header{padding:16px var(--page-pad);border-bottom:1px solid var(--line);display:flex;
   align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
   position:sticky;top:0;background:var(--header-bg);backdrop-filter:blur(10px);z-index:10;box-shadow:var(--shadow-sm)}
@@ -97,6 +120,13 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:14px;
    区块自带的 padding-top 挪给吸顶的首行（它要盖住滚上来的内容），故置 0；
    首行的 margin 也折成 padding，否则吸顶后下方那条 margin 会漏出滚动内容。 */
 body.win-capped .main-page section{max-height:var(--win-max-h);overflow-y:auto;padding-top:0}
+/* 看板页的面板用 #pageAnalytics .panel{overflow:hidden}（ID 选择器）做圆角
+   裁剪，优先级压过上一条，限高模式下 section 的滚动被裁掉——内容超出限高
+   后既看不到也滚不动。这里把滚动权还给限高模式下的看板面板。 */
+body.win-capped #pageAnalytics section.panel{overflow-y:auto}
+/* 看板面板本身是唯一的纵向滚动上下文；pbody 只保留表格横向溢出。
+   overflow-y:clip 防止 overflow-x:auto 按 CSS 规则隐式生成第二根纵向滚动条。 */
+body.win-capped #pageAnalytics section.panel .pbody{overflow-y:clip!important;max-height:none!important;overscroll-behavior:auto}
 body.win-capped .main-page section>:first-child{position:sticky;top:0;z-index:3;
   background:var(--panel);padding-top:18px;margin-bottom:0!important;padding-bottom:14px}
 body.win-capped #logTerminalBody{max-height:var(--win-max-h)}
@@ -104,6 +134,13 @@ section h2{margin:0 0 14px;font-size:13px;font-weight:700;color:var(--dim);
   text-transform:uppercase;letter-spacing:.6px}
 section h2 em{color:var(--fg);font-style:normal;text-transform:none;letter-spacing:0;margin-left:6px}
 table{width:100%;border-collapse:collapse;font-size:13px}
+/* 网关模型清单：固定列布局 + 百分比列宽 → 占满整行、消除右侧空位；
+   单元格 nowrap 防止长模型 ID / 思考档位换行，超长用省略号兜底。 */
+#modelsTable{table-layout:fixed}
+#modelsTable th,#modelsTable td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#modelsTable td[data-label="思考档位"]{white-space:nowrap}
+/* 采样参数：放不下时 chips 折行显示完整，不截断 */
+#modelsTable td[data-label="默认采样参数"]{white-space:normal}
 th,td{text-align:right;padding:9px 12px;border-bottom:1px solid var(--line);
   font-variant-numeric:tabular-nums;vertical-align:middle}
 th{color:var(--dim);font-weight:600;font-size:12px;white-space:nowrap;background:var(--panel2)}
@@ -185,9 +222,28 @@ th.sortable:focus-visible .sort-arrow.idle{opacity:1}
 .badge.warn{color:#a0691c;background:rgba(183,121,31,.14);border-color:rgba(183,121,31,.35)}
 .badge.bad{color:#a03c32;background:rgba(181,71,59,.14);border-color:rgba(181,71,59,.35)}
 .badge.mini{padding:1px 6px;font-size:10px}
-.cool-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
-.cool-pill{display:inline-block;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;
+.cool-list{display:flex;flex-direction:column;align-items:stretch;gap:2px;margin-top:3px;max-width:100%;overflow:hidden;min-width:0}
+.cool-pill{display:inline-block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;
   color:#a0691c;background:rgba(183,121,31,.14);border:1px solid rgba(183,121,31,.35);white-space:nowrap}
+/* 桌面账号表的告警按模型逐条纵排；完整模型名/时间仍可通过 title 悬浮查看。 */
+table.account-cards td[data-label="账号"] .cool-list{display:flex;flex-direction:column;align-items:stretch;gap:2px;max-width:100%;overflow:hidden}
+table.account-cards td[data-label="账号"] .cool-pill{display:block;width:100%;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (min-width:641px){
+  table.account-cards{table-layout:fixed;min-width:1262px}
+  table.account-cards th:nth-child(2),table.account-cards td:nth-child(2){width:180px}
+  table.account-cards td.acct-actions{white-space:normal;min-width:232px;width:232px;position:sticky;right:0;z-index:2;background:var(--panel);box-shadow:-8px 0 12px -12px rgba(31,30,27,.55)}
+  table.account-cards th:last-child{position:sticky;right:0;z-index:3;background:var(--panel2);box-shadow:-8px 0 12px -12px rgba(31,30,27,.55)}
+  table.account-cards tbody tr:hover td.acct-actions{background:var(--panel2)}
+  /* 操作区沿用原来的两行布局，不在窄列中再次折成三四行。 */
+  table.account-cards .acct-actions-col{min-width:max-content;max-width:none}
+  table.account-cards .acct-actions-row{flex-wrap:nowrap;max-width:none}
+}
+@media (max-width:640px){
+  table.account-cards{min-width:0!important;table-layout:auto}
+  table.account-cards th:last-child,table.account-cards td.acct-actions{position:static;min-width:0;width:auto;z-index:auto;box-shadow:none}
+  table.account-cards td[data-label="积分"]{white-space:normal;align-items:flex-start}
+  table.account-cards .credit-stack{width:100%;align-items:flex-start}
+}
 .empty{color:var(--dim);text-align:center;padding:28px 0;font-size:13px}
 /* 价格悬停气泡：自绘，才能对齐单价并截图验收；pointer-events:none 让它不会
    抢走鼠标、把 hover 打断。 */
@@ -250,8 +306,35 @@ button.mini{padding:3px 9px;font-size:11px}
   padding:3px 6px;color:var(--fg);font:inherit;font-size:11px;font-variant-numeric:tabular-nums}
 .slot-input{width:100%;background:var(--panel2);border:1px solid var(--line);
   border-radius:8px;padding:6px 10px;color:var(--fg);font:inherit;font-size:13px}
+table.account-cards td[data-label="账号"]{padding-top:6px;padding-bottom:6px}
+table.account-cards td[data-label="账号"] .cool-list{max-width:100%;}
+table.account-cards td[data-label="账号"] .cool-pill{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+
 .acct-actions-col{display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:center}
 .acct-actions-row{display:flex;gap:4px;justify-content:center}
+/* 账号列（accountRow）：账号名 + 备注 chip 一行、次要信息一行、报错一行。
+   次要信息与报错的完整值都在 data-tip 悬浮气泡里。 */
+.acct-name-row{display:flex;align-items:center;gap:6px;min-width:0}
+.credit-summary{white-space:nowrap}
+.credit-kind{font-size:11px;font-weight:500;color:var(--dim)}
+.credit-stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px;white-space:nowrap;min-width:0}
+.credit-main{display:inline-flex;align-items:baseline;gap:6px;line-height:1.15}
+.credit-main b{font-size:13px;font-weight:700;color:var(--accent2)}
+.credit-main .credit-total{font-size:11px;font-weight:500;color:var(--dim)}
+.credit-meta{display:inline-flex;align-items:center;gap:4px;min-height:17px}
+.credit-meta .badge{font-size:10px;padding:1px 5px}
+@media (max-width:1100px){.realm-cards-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.realm-cards-grid .gateway-ctrl{grid-column:span 2}}
+@media (max-width:720px){.realm-cards-grid{grid-template-columns:1fr!important}.realm-cards-grid .gateway-ctrl{grid-column:auto}.credit-summary{white-space:normal}}
+.acct-name{font-weight:600;font-size:14px;color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note-chip{flex-shrink:0;font-size:10px;line-height:16px;padding:0 6px;border-radius:999px;cursor:pointer;color:var(--dim);border:1px dashed var(--line);white-space:nowrap}
+.note-chip:hover{color:var(--accent);border-color:var(--accent)}
+.note-chip.has{color:var(--accent2);border:1px solid transparent;background:var(--accent2-soft);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.acct-meta{color:var(--dim);font-size:11px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acct-meta [data-tip]{cursor:help}
+.acct-meta [data-tip]:hover{color:var(--fg)}
+.acct-err{display:flex;align-items:center;gap:4px;color:var(--warn);font-size:11px;margin-top:1px;cursor:help;max-width:340px}
+.acct-err .err-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-err .err-info{flex-shrink:0;opacity:.7}
 .modal-mask{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);
   backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px;z-index:100}
 .modal-mask.show{display:flex}
@@ -322,16 +405,18 @@ a:hover{text-decoration:underline}
 
 .realm-card{
   background:var(--panel);border:1px solid var(--line);border-radius:12px;
-  padding:14px 18px;box-shadow:var(--shadow);cursor:pointer;transition:all .15s ease;
-  position:relative;display:flex;flex-direction:column;justify-content:space-between;min-height:104px;
+  padding:12px 16px;box-shadow:var(--shadow);cursor:pointer;transition:all .15s ease;
+  position:relative;display:flex;flex-direction:column;justify-content:space-between;min-height:84px;
 }
 .realm-card:hover{border-color:var(--line-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+/* 选中态：描边 + 淡色填充双通道。只靠 1px 描边在小屏或暗色下不够醒目，
+   填充色让「当前视图」一眼可辨（M3 selected-container 的做法）。 */
 .realm-card.active{
-  border-color:var(--accent);background:var(--panel);
+  border-color:var(--accent);background:var(--accent-selected-bg);
   box-shadow:0 0 0 1px var(--accent), var(--shadow-md);
 }
 .realm-card.active#tabCn{
-  border-color:var(--bad);box-shadow:0 0 0 1px var(--bad), var(--shadow-md);
+  border-color:var(--bad);background:var(--bad-selected-bg);box-shadow:0 0 0 1px var(--bad), var(--shadow-md);
 }
 .realm-card.gateway-ctrl{
   background:var(--panel2);cursor:default;border-color:var(--line);
@@ -357,6 +442,18 @@ a:hover{text-decoration:underline}
 .gh-link:hover{color:var(--fg);border-color:var(--line-hover);
   background:var(--panel2);text-decoration:none;box-shadow:var(--shadow-md)}
 .gh-link svg{width:17px;height:17px;display:block;fill:currentColor}
+
+/* 顶栏图标按钮：控制台显隐 / 关闭服务，与 gh-link 同款几何。 */
+.hdr-icon-btn{display:inline-flex;align-items:center;justify-content:center;
+  width:34px;height:32px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel);color:var(--dim);box-shadow:var(--shadow-sm);
+  cursor:pointer;padding:0;transition:all .15s ease}
+.hdr-icon-btn:hover{color:var(--fg);border-color:var(--line-hover);
+  background:var(--panel2);box-shadow:var(--shadow-md)}
+.hdr-icon-btn svg{width:16px;height:16px;display:block}
+.hdr-icon-btn:disabled{opacity:.45;cursor:default}
+.hdr-icon-danger:hover{color:var(--bad);border-color:var(--bad)}
+@media (max-width:640px){.hdr-icon-btn{width:36px;height:36px}}
 
 /* 顶部右侧区域与主题切换组件 (黑白单色、极简线条Outline、符合规范) */
 .header-right{display:flex;align-items:center;gap:10px}
@@ -395,6 +492,7 @@ a:hover{text-decoration:underline}
 .theme-option.active .theme-opt-check{opacity:1}
 .theme-option.active{font-weight:600;color:var(--accent)}
 .theme-option.active .theme-opt-icon{color:var(--accent)}
+.theme-sep{height:1px;background:var(--line);margin:4px 6px}
 .lang-btn{
   display:inline-flex;align-items:center;justify-content:center;
   min-width:34px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--line);
@@ -411,7 +509,7 @@ a:hover{text-decoration:underline}
 
 [data-theme="dark"] .badge.ok{color:#9dbb87;background:rgba(143,174,120,.16);border-color:rgba(143,174,120,.34)}
 [data-theme="dark"] .badge.s{color:#8ab4d9;background:rgba(106,155,204,.18);border-color:rgba(106,155,204,.36)}
-[data-theme="dark"] .badge.off{color:#a5a29a;background:rgba(165,162,154,.14);border-color:rgba(165,162,154,.24)}
+[data-theme="dark"] .badge.off{color:var(--terminal-fg);background:rgba(165,162,154,.14);border-color:rgba(165,162,154,.24)}
 [data-theme="dark"] .badge.warn{color:#d9b25f;background:rgba(217,178,95,.16);border-color:rgba(217,178,95,.35)}
 [data-theme="dark"] .badge.bad{color:#d97b72;background:rgba(217,123,114,.16);border-color:rgba(217,123,114,.35)}
 [data-theme="dark"] .cool-pill{color:#d9b25f;background:rgba(217,178,95,.18);border-color:rgba(217,178,95,.38)}
@@ -505,19 +603,19 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 .key-row-switch{min-height:0}
 .log-line{display:flex;align-items:flex-start;gap:8px;padding:3px 6px;border-radius:4px;font-family:Consolas,Monaco,'Courier New',monospace;font-size:12px;line-height:1.55;transition:background .1s}
 .log-line:hover{background:rgba(255,255,255,.05)}
-.log-ts{color:#7c796f;font-variant-numeric:tabular-nums;flex-shrink:0;user-select:none}
+.log-ts{color:var(--terminal-dim);font-variant-numeric:tabular-nums;flex-shrink:0;user-select:none}
 .log-lvl{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;flex-shrink:0;text-align:center;min-width:46px;user-select:none}
 .log-lvl.lvl-INFO{background:rgba(106,155,204,.22);color:#8ab4d9}
 .log-lvl.lvl-WARN{background:rgba(217,178,95,.2);color:#d9b25f}
 .log-lvl.lvl-ERROR{background:rgba(217,123,114,.22);color:#e0948c}
-.log-lvl.lvl-DEBUG{background:rgba(165,162,154,.2);color:#a5a29a}
-.log-tag{font-size:11px;font-weight:600;padding:1px 5px;border-radius:3px;flex-shrink:0;background:rgba(165,162,154,.14);color:#a5a29a;user-select:none}
+.log-lvl.lvl-DEBUG{background:rgba(165,162,154,.2);color:var(--terminal-fg)}
+.log-tag{font-size:11px;font-weight:600;padding:1px 5px;border-radius:3px;flex-shrink:0;background:rgba(165,162,154,.14);color:var(--terminal-fg);user-select:none}
 .log-tag.tag-chat{background:rgba(191,163,204,.18);color:#c5a3d1}
 .log-tag.tag-scheduler{background:rgba(143,174,120,.18);color:#9dbb87}
 .log-tag.tag-tasks{background:rgba(217,178,95,.18);color:#d9c07a}
 .log-tag.tag-accounts{background:rgba(138,180,217,.18);color:#8ab4d9}
 .log-tag.tag-auth{background:rgba(224,148,140,.18);color:#e0948c}
-.log-tag.tag-system{background:rgba(124,121,111,.2);color:#a5a29a}
+.log-tag.tag-system{background:rgba(124,121,111,.2);color:var(--terminal-fg)}
 /* 细分出来的模块标签各有配色；catalog/auth 早先就被推断出来，只是一直没有
    自己的颜色，和 system 的灰底混在一起。 */
 .log-tag.tag-catalog{background:rgba(143,186,173,.18);color:#8fbaad}
@@ -528,8 +626,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 .log-tag.tag-update{background:rgba(156,182,216,.18);color:#9cb6d8}
 .log-tag.tag-usage{background:rgba(148,195,179,.18);color:#94c3b3}
 .log-tag.tag-webtools{background:rgba(181,194,118,.18);color:#b5c276}
-.log-msg{color:#d6d3c9;flex:1;word-break:break-all;white-space:pre-wrap}
-.log-empty{padding:48px 24px;text-align:center;color:#7c796f;font-size:13px;font-family:inherit}
+.log-msg{color:var(--terminal-fg);flex:1;word-break:break-all;white-space:pre-wrap}
+.log-empty{padding:48px 24px;text-align:center;color:var(--terminal-dim);font-size:13px;font-family:inherit}
 /* ===== Phone: ≤640px ===== */
 @media (max-width: 640px){
   header{padding:10px 12px;gap:8px}
@@ -640,30 +738,30 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 
 
 #pageAnalytics{
-  --bg:#f7f5ef; --panel:#ffffff; --panel2:#f1efe7; --panel3:#e9e6db;
-  --line:#e6e3d8; --line2:#d9d5c7;
-  --fg:#1f1e1b; --fg2:#3d3d3a; --dim:#73716a; --dim2:#98958b;
-  --accent:#c96442; --accent-2:#d97757; --accent-soft:rgba(201,100,66,.09);
-  --green:#5e8c4f; --green-soft:rgba(94,140,79,.12);
-  --blue:#6a9bcc; --gold:#b7791f; --red:#b5473b;
-  --chart-bar:#d97757; --chart-bar-soft:rgba(217,119,87,.55);
-  --chart-line:#6a9bcc;
-  --hm0:#eceae1; --hm1:#f3d9cb; --hm2:#e8b49c; --hm3:#d98c67; --hm4:#c96442;
+  --bg:#efebe0; --panel:#ffffff; --panel2:#e9e5d6; --panel3:#e0dbc9;
+  --line:#d5cfbc; --line2:#c5bfab;
+  --fg:#1f1e1b; --fg2:#3d3d3a; --dim:#625f57; --dim2:#87847a;
+  --accent:#a14427; --accent-2:#c25f3d; --accent-soft:rgba(161,68,39,.09);
+  --green:#497035; --green-soft:rgba(73,112,53,.12);
+  --blue:#4f82b0; --gold:#a0691c; --red:#b5473b;
+  --chart-bar:#c25f3d; --chart-bar-soft:rgba(194,95,61,.55);
+  --chart-line:#4f82b0;
+  --hm0:#e4dfcf; --hm1:#f3d9cb; --hm2:#e8b49c; --hm3:#c25f3d; --hm4:#a14427;
   --shadow:0 1px 2px rgba(31,30,27,.04), 0 4px 14px rgba(31,30,27,.04);
   --shadow-lg:0 2px 6px rgba(31,30,27,.06), 0 12px 32px rgba(31,30,27,.10);
   --serif:ui-serif, Georgia, "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
   --sans:ui-sans-serif, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 [data-theme="dark"] #pageAnalytics{
-  --bg:#1f1e1b; --panel:#292823; --panel2:#33312b; --panel3:#3d3a33;
-  --line:#403e37; --line2:#4d4a41;
+  --bg:#1f1e1b; --panel:#2d2c25; --panel2:#38362f; --panel3:#433f37;
+  --line:#4f4b42; --line2:#5d584e;
   --fg:#edebe3; --fg2:#d6d3c9; --dim:#a5a29a; --dim2:#7c796f;
-  --accent:#d97757; --accent-2:#e08862; --accent-soft:rgba(217,119,87,.14);
+  --accent:#e88a68; --accent-2:#f0967a; --accent-soft:rgba(232,138,104,.14);
   --green:#8fae78; --green-soft:rgba(143,174,120,.14);
   --blue:#8ab4d9; --gold:#d9b25f; --red:#d97b72;
-  --chart-bar:#e08862; --chart-bar-soft:rgba(224,136,98,.5);
+  --chart-bar:#f0967a; --chart-bar-soft:rgba(240,150,122,.5);
   --chart-line:#8ab4d9;
-  --hm0:#33312b; --hm1:#4a382e; --hm2:#6b4936; --hm3:#a05f41; --hm4:#d97757;
+  --hm0:#38362f; --hm1:#4a382e; --hm2:#6b4936; --hm3:#a05f41; --hm4:#e88a68;
   --shadow:0 1px 2px rgba(0,0,0,.25), 0 4px 14px rgba(0,0,0,.25);
   --shadow-lg:0 2px 6px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.4);
 }
@@ -766,7 +864,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 #pageAnalytics .ring .hole span{font-size:9px;color:var(--dim)}
 
 
-#pageAnalytics .recent-list{display:flex;flex-direction:column;max-height:236px;overflow-y:auto}
+#pageAnalytics .recent-list{display:flex;flex-direction:column;max-height:260px;overflow-y:auto;padding-right:2px}
 #pageAnalytics .recent-item{
   display:grid;grid-template-columns:54px minmax(0,1fr) auto;gap:10px;align-items:baseline;
   font-size:11px;padding:5.5px 0;border-bottom:1px dashed var(--line);
@@ -790,10 +888,13 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 #pageAnalytics .panel{
   background:var(--panel);border:1px solid var(--line);border-radius:12px;
   box-shadow:var(--shadow);margin-bottom:10px;overflow:hidden;
+  transition:border-color .15s ease,box-shadow .15s ease;
 }
+#pageAnalytics .panel:hover{border-color:var(--line2);box-shadow:var(--shadow-md)}
 #pageAnalytics .phead{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  padding:9px 14px 7px;
+  padding:9px 14px 7px;border-bottom:1px solid var(--line);
+  background:linear-gradient(to bottom,var(--panel),var(--panel2));
 }
 #pageAnalytics .phead h2{
   margin:0;font-size:12.5px;font-weight:650;letter-spacing:.01em;
@@ -804,7 +905,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 #pageAnalytics .pbody{padding:0 14px 11px}
 
 
-#pageAnalytics .maingrid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,6fr);gap:10px;margin-bottom:10px}
+#pageAnalytics .maingrid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,6fr);gap:10px;margin-bottom:10px;align-items:stretch}
 #pageAnalytics .maingrid .panel{margin-bottom:0}
 @media (max-width:1150px){#pageAnalytics .maingrid{grid-template-columns:1fr}}
 
@@ -864,6 +965,18 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 #pageAnalytics .dimtabs button.on{background:var(--panel);color:var(--fg);font-weight:650;box-shadow:var(--shadow);border:1px solid var(--line)}
 #pageAnalytics .dimtabs .cnt{font-size:10.5px;color:var(--dim2);background:var(--panel2);border-radius:20px;padding:0 6px;line-height:16px}
 #pageAnalytics .dimtabs button.on .cnt{background:var(--accent-soft);color:var(--accent)}
+#pageAnalytics .dim-columns-btn{border:1px solid var(--line);background:var(--panel);color:var(--dim);font-size:11px;padding:4px 9px;border-radius:7px;cursor:pointer}
+#pageAnalytics .dim-columns-btn:hover,#pageAnalytics .dim-columns-btn[aria-expanded="true"]{color:var(--fg);border-color:var(--accent);background:var(--accent-soft)}
+#pageAnalytics .phead{position:relative}
+#pageAnalytics .dim-columns-menu{position:absolute;right:14px;top:34px;z-index:10;min-width:180px;padding:7px;background:var(--panel);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow-lg)}
+#pageAnalytics .dim-columns-menu[hidden]{display:none}
+#pageAnalytics .dim-columns-menu .dim-col-item{display:flex;align-items:center;gap:7px;padding:4px 5px;font-size:11px;color:var(--fg);cursor:grab;border-radius:5px}
+#pageAnalytics .dim-columns-menu .dim-col-item:hover{background:var(--panel2)}
+#pageAnalytics .dim-columns-menu .dim-col-item.locked{cursor:default;color:var(--dim)}
+#pageAnalytics .dim-columns-menu .dim-col-grip{color:var(--dim2);font-size:12px;width:12px}
+#pageAnalytics .dim-columns-menu .dim-col-item input{accent-color:var(--accent)}
+#pageAnalytics table.dim th[data-dim-col]{cursor:grab;user-select:none}
+#pageAnalytics table.dim th[data-dim-col]:hover{background:var(--panel2);color:var(--fg)}
 
 #pageAnalytics table.dim{width:100%;border-collapse:collapse;font-size:12px}
 #pageAnalytics table.dim th{
@@ -873,7 +986,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 #pageAnalytics table.dim th.num{text-align:right}
 #pageAnalytics table.dim td{padding:6.5px 8px;border-bottom:1px solid var(--line);vertical-align:middle;font-variant-numeric:tabular-nums}
 #pageAnalytics table.dim tbody tr{transition:background .12s ease}
-#pageAnalytics table.dim tbody tr:hover{background:var(--panel2)}
+#pageAnalytics table.dim tbody tr:hover{background:var(--panel2);box-shadow:inset 2px 0 0 var(--accent)}
+#pageAnalytics table.dim thead th{background:var(--panel2)}
 #pageAnalytics table.dim tbody tr:last-child td{border-bottom:0}
 #pageAnalytics td.num{text-align:right;white-space:nowrap}
 #pageAnalytics th.num{text-align:right}
@@ -957,6 +1071,24 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
    external or deferred script would run too late to avoid the flash. */
 (function(){
   var THEME_KEY = 'wb-theme';
+  var THEME_STYLE_KEY = 'wb-theme-style';
+  var THEME_STYLES = {
+    claude: {label:'Claude', light:{"--bg":"#efebe0","--panel":"#ffffff","--panel2":"#e9e5d6","--panel3":"#e0dbc9","--line":"#d5cfbc","--line-hover":"#c5bfab","--fg":"#1f1e1b","--dim":"#625f57","--dim-light":"#87847a","--accent":"#a14427","--accent-hover":"#8a3a20","--accent-soft":"rgba(161,68,39,.09)","--accent-selected-bg":"rgba(161,68,39,.14)","--accent2":"#497035","--accent2-soft":"rgba(73,112,53,.12)","--warn":"#a0691c","--warn-soft":"rgba(183,121,31,.12)","--think":"#7d5c8a","--think-soft":"rgba(125,92,138,.10)","--bad":"#b5473b","--bad-soft":"rgba(181,71,59,.09)","--shadow-sm":"0 1px 2px 0 rgba(31,30,27,.05)","--shadow":"0 1px 2px 0 rgba(31,30,27,.05),0 4px 14px rgba(31,30,27,.04)","--shadow-md":"0 2px 6px 0 rgba(31,30,27,.06),0 12px 32px rgba(31,30,27,.09)","--header-bg":"rgba(239,235,224,.92)","--hm0":"#ece6db","--hm1":"#f3d5c1","--hm2":"#e8a98a","--hm3":"#d6846a","--hm4":"#b4533a"}, dark:{"--bg":"#1f1e1b","--panel":"#2d2c25","--panel2":"#38362f","--panel3":"#433f37","--line":"#4f4b42","--line-hover":"#5d584e","--fg":"#edebe3","--dim":"#a5a29a","--dim-light":"#9c9a90","--accent":"#e88a68","--accent-hover":"#f0967a","--accent-soft":"rgba(232,138,104,.14)","--accent-selected-bg":"rgba(232,138,104,.18)","--accent2":"#8fae78","--accent2-soft":"rgba(143,174,120,.15)","--warn":"#d9b25f","--warn-soft":"rgba(217,178,95,.15)","--think":"#bfa3cc","--think-soft":"rgba(191,163,204,.15)","--bad":"#d97b72","--bad-soft":"rgba(217,123,114,.15)","--shadow-sm":"0 1px 2px 0 rgba(0,0,0,.25)","--shadow":"0 1px 2px 0 rgba(0,0,0,.25),0 4px 14px rgba(0,0,0,.25)","--shadow-md":"0 2px 6px 0 rgba(0,0,0,.3),0 12px 32px rgba(0,0,0,.4)","--header-bg":"rgba(31,30,27,.92)","--hm0":"#2b2924","--hm1":"#3d352e","--hm2":"#5a3e30","--hm3":"#8a5a45","--hm4":"#c97250"}},
+    material: {label:'Material', light:{"--bg":"#fefbff","--panel":"#ffffff","--panel2":"#f5eff7","--panel3":"#ece6f0","--line":"#cac4d0","--line-hover":"#b4aab8","--fg":"#1d1b20","--dim":"#5b5b66","--dim-light":"#767680","--accent":"#6750a4","--accent-hover":"#4f378b","--accent-soft":"#eaddff","--accent-selected-bg":"#e8def8","--accent2":"#006a60","--accent2-soft":"#ccfbee","--warn":"#7e5260","--bad":"#b3261e","--bad-soft":"#f9dedc","--think":"#5e5891","--think-soft":"#e5dffa","--shadow-sm":"0 1px 2px 0 rgba(29,27,32,.15)","--shadow":"0 1px 2px 0 rgba(29,27,32,.18),0 1px 3px 1px rgba(29,27,32,.10)","--shadow-md":"0 2px 4px -1px rgba(29,27,32,.12),0 4px 6px 1px rgba(29,27,32,.10)","--header-bg":"rgba(254,251,255,.94)","--hm0":"#e8def8","--hm1":"#d3c2f1","--hm2":"#b8a1ec","--hm3":"#9a82e3","--hm4":"#6750a4"}, dark:{"--bg":"#141218","--panel":"#211f26","--panel2":"#2b2930","--panel3":"#36343b","--line":"#49454f","--line-hover":"#5b5963","--fg":"#e6e1e5","--dim":"#c4c5d0","--dim-light":"#928f9a","--accent":"#d0bcff","--accent-hover":"#b9a4fa","--accent-soft":"rgba(208,188,255,.24)","--accent-selected-bg":"rgba(208,188,255,.30)","--accent2":"#4ecdb4","--accent2-soft":"rgba(78,205,180,.24)","--warn":"#f2b8b4","--bad":"#f2b8b4","--bad-soft":"rgba(242,184,180,.24)","--think":"#cfc4f7","--think-soft":"rgba(207,196,247,.18)","--shadow-sm":"0 1px 2px 0 rgba(0,0,0,.30)","--shadow":"0 1px 2px 0 rgba(0,0,0,.40),0 1px 3px 1px rgba(0,0,0,.30)","--shadow-md":"0 2px 4px -1px rgba(0,0,0,.45),0 4px 6px 1px rgba(0,0,0,.32)","--header-bg":"rgba(20,18,24,.88)","--hm0":"#2b2930","--hm1":"#332e44","--hm2":"#3d3460","--hm3":"#4d4080","--hm4":"#d0bcff"}},
+    miuix: {label:'MiuiX', light:{"--bg":"#f6f7fa","--panel":"#ffffff","--panel2":"#eef0f4","--panel3":"#e2e6ee","--line":"#dde1e8","--line-hover":"#c9d0db","--fg":"#1f2024","--dim":"#5f6671","--dim-light":"#8c93a0","--accent":"#ff5c00","--accent-hover":"#ff7a33","--accent-soft":"rgba(255,92,0,.10)","--accent-selected-bg":"rgba(255,92,0,.18)","--accent2":"#07c160","--accent2-soft":"rgba(7,193,96,.12)","--warn":"#d48200","--bad":"#e53935","--bad-soft":"rgba(229,57,53,.10)","--think":"#7c4dff","--think-soft":"rgba(124,77,255,.10)","--shadow-sm":"0 1px 2px 0 rgba(31,32,36,.05)","--shadow":"0 2px 6px 0 rgba(31,32,36,.08)","--shadow-md":"0 6px 16px 0 rgba(31,32,36,.10)","--header-bg":"rgba(255,255,255,.85)","--hm0":"#ffece0","--hm1":"#ffd0b8","--hm2":"#ffb085","--hm3":"#ff8c4a","--hm4":"#ff5c00"}, dark:{"--bg":"#0e0f12","--panel":"#191b1f","--panel2":"#22252b","--panel3":"#2a2d34","--line":"#2e3239","--line-hover":"#3a3f48","--fg":"#f0f1f4","--dim":"#9aa0aa","--dim-light":"#7a8090","--accent":"#ff7a33","--accent-hover":"#ff9056","--accent-soft":"rgba(255,122,51,.18)","--accent-selected-bg":"rgba(255,122,51,.26)","--accent2":"#3ed984","--accent2-soft":"rgba(62,217,132,.20)","--warn":"#ffb852","--bad":"#ff6f6f","--bad-soft":"rgba(255,111,111,.16)","--think":"#a78bff","--think-soft":"rgba(167,139,255,.18)","--shadow-sm":"0 1px 2px 0 rgba(0,0,0,.40)","--shadow":"0 2px 6px 0 rgba(0,0,0,.55)","--shadow-md":"0 6px 18px 0 rgba(0,0,0,.60)","--header-bg":"rgba(14,15,18,.78)","--hm0":"#22252b","--hm1":"#332820","--hm2":"#4a2c20","--hm3":"#5c3220","--hm4":"#ff7a33"}}
+  };
+  var STYLE_GEOMETRY = {claude:12, material:14, miuix:20};
+  Object.keys(THEME_STYLES).forEach(function(id){
+    ['light','dark'].forEach(function(mode){
+      var v=THEME_STYLES[id][mode];
+      var r = STYLE_GEOMETRY[id] || 12;
+      v['--radius-card'] = r + 'px';
+      v['--radius-pill'] = (id === 'miuix' ? 16 : r) + 'px';
+      v['--radius-control'] = Math.max(6, Math.round(r*0.6)) + 'px';
+    });
+  });
+  function getStyle(){ try { var s=localStorage.getItem(THEME_STYLE_KEY); return THEME_STYLES[s] ? s : 'claude'; } catch(e){ return 'claude'; } }
+  function setStyleAttr(s){ document.documentElement.setAttribute('data-theme-style',s); }
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   function getPref(){
     try { return localStorage.getItem(THEME_KEY) || 'system'; } catch(e){ return 'system'; }
@@ -968,16 +1100,34 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 
   // 1. 初始化主题（防止闪烁）
   var savedTheme = getPref();
+  var savedStyle = getStyle();
   var resolvedTheme = resolve(savedTheme);
+  setStyleAttr(savedStyle);
   document.documentElement.setAttribute('data-theme', resolvedTheme);
   document.documentElement.setAttribute('data-theme-pref', savedTheme);
   document.documentElement.style.colorScheme = resolvedTheme;
+  applyStyle(savedStyle);
 
   // 2. 主题切换核心与UI同步逻辑
   var svgSun = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>';
   var svgMoon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>';
   var svgMonitor = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>';
 
+  function applyStyle(style){
+    if(!THEME_STYLES[style]) style = 'claude';
+    var vars = THEME_STYLES[style][resolvedTheme === 'dark' ? 'dark' : 'light'];
+    setStyleAttr(style);
+    Object.keys(vars).forEach(function(k){ document.documentElement.style.setProperty(k, vars[k]); });
+    try { localStorage.setItem(THEME_STYLE_KEY, style); } catch(e){}
+    return style;
+  }
+  function updateStyleUI(style){
+    var menu = document.getElementById('themeDropdown');
+    if(!menu) return;
+    Array.prototype.forEach.call(menu.querySelectorAll('[data-theme-style-option]'), function(opt){
+      opt.classList.toggle('active', opt.getAttribute('data-theme-style-option') === style);
+    });
+  }
   function updateThemeUI(pref, resolved){
     var icon = document.getElementById('themeToggleIcon');
     var btn = document.getElementById('themeToggleBtn');
@@ -997,12 +1147,39 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     if(btn) btn.title = '颜色主题: ' + label;
   }
 
+  window.applyStyle = function(style){
+    style = THEME_STYLES[style] ? style : 'claude';
+    try { localStorage.setItem(THEME_STYLE_KEY, style); } catch(e){}
+    setStyleAttr(style);
+    var mode = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    var vars = THEME_STYLES[style][mode];
+    Object.keys(vars).forEach(function(k){ document.documentElement.style.setProperty(k, vars[k]); });
+    updateStyleUI(style);
+    var analytics = document.getElementById('pageAnalytics');
+    if(analytics){
+      ['--bg','--panel','--panel2','--panel3','--line','--line2','--fg','--fg2','--dim','--dim2','--accent','--accent-2','--green','--green-soft','--gold','--red','--blue','--chart-bar','--chart-bar-soft','--chart-line','--hm0','--hm1','--hm2','--hm3','--hm4','--shadow','--shadow-lg'].forEach(function(k){
+        var source = {'--green':'--accent2','--gold':'--warn','--red':'--bad'}[k] || k;
+        analytics.style.setProperty(k, getComputedStyle(document.documentElement).getPropertyValue(source).trim());
+      });
+    }
+    return style;
+  };
+  window.selectStyle = function(style, evt){
+    if(evt){ evt.preventDefault(); evt.stopPropagation(); }
+    window.applyStyle(style);
+    var menu = document.getElementById('themeDropdown');
+    var btn = document.getElementById('themeToggleBtn');
+    if(menu) menu.classList.remove('open');
+    if(btn) btn.setAttribute('aria-expanded', 'false');
+    return false;
+  };
   window.applyTheme = function(pref){
     var resolved = resolve(pref);
     document.documentElement.setAttribute('data-theme', resolved);
     document.documentElement.setAttribute('data-theme-pref', pref);
     document.documentElement.style.colorScheme = resolved;
     try { localStorage.setItem(THEME_KEY, pref); } catch(e){}
+    window.applyStyle(getStyle());
     updateThemeUI(pref, resolved);
   };
 
@@ -1081,6 +1258,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       if(btn) btn.classList.toggle('active', t === pick);
     });
     window.initThemeSystem();
+    if(window.applyStyle) window.applyStyle(getStyle());
   });
 })();
 </script>
@@ -2135,6 +2313,10 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     ' 恢复': '',
     '颜色主题': 'Color theme',
     '颜色主题:': 'Color theme:',
+    '色彩配置': 'Color settings',
+    '关闭色彩配置': 'Close color settings',
+    '重置': 'Reset',
+    '导出 JSON': 'Export JSON',
     '额度利用率:': 'Quota utilization:',
     '首字': 'TTFT',
     '首字延迟': 'Time to first token',
@@ -2155,6 +2337,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '）· 只读': ') · read-only',
     '，手动导入': ', imported manually',
     '，进程内存回收': ', recovered from process memory',
+    '当前系统不支持从进程内存回收密钥。': 'This system does not support recovering the key from process memory.',
     '回收不到时，也可以在下面手动粘贴密钥。': 'If recovery fails, you can also paste the key below.',
     '可以在下面手动粘贴解码密钥，或改用「+ 添加账号 (OAuth)」走浏览器登录。': 'You can paste the decryption key below, or sign in through the browser with + Add account (OAuth).',
     '手工导入的密钥只留在网关内存里，不落盘、不写日志；导入时会先用 keyblob 校验，贴错会直接报错。': 'A manually imported key stays in the gateway process memory only - never written to disk or to the logs; it is validated against the keyblob first, so a wrong paste fails immediately.',
@@ -2723,6 +2906,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "（策略早于该字段，按当前映射表推断）": "（策略早於該欄位，按目前對映表推斷）",
     "，手动导入": "，手動匯入",
     "，进程内存回收": "，程序記憶體回收",
+    "当前系统不支持从进程内存回收密钥。": "當前系統不支援從進程記憶體回收金鑰。",
     "回收不到时，也可以在下面手动粘贴密钥。": "回收不到時，也可以在下面手動貼上金鑰。",
     "可以在下面手动粘贴解码密钥，或改用「+ 添加账号 (OAuth)」走浏览器登录。": "可以在下面手動貼上解碼金鑰，或改用「+ 新增帳號 (OAuth)」走瀏覽器登入。",
     "手工导入的密钥只留在网关内存里，不落盘、不写日志；导入时会先用 keyblob 校验，贴错会直接报错。": "手動匯入的金鑰只留在閘道記憶體裡，不落盤、不寫日誌；匯入時會先用 keyblob 校驗，貼錯會直接報錯。",
@@ -3283,6 +3467,18 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
       </svg>
     </a>
+    <!-- 顶栏按钮：眼睛 = 在新窗口打开运行日志；电源 = 关闭网关服务。
+         data-no-i18n：图标按钮，title 固定中文。 -->
+    <button type="button" class="hdr-icon-btn" id="btnConsoleToggle" data-no-i18n onclick="toggleConsoleWindow()"
+            title="在新窗口打开运行日志" aria-label="在新窗口打开运行日志">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+    <button type="button" class="hdr-icon-btn hdr-icon-danger" id="btnGatewayShutdown" data-no-i18n onclick="shutdownGateway()"
+            title="关闭网关服务（进程退出，需重新运行启动脚本）" aria-label="关闭网关服务">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>
+      </svg>
+    </button>
   </div>
   <div class="header-right">
     <button type="button" class="lang-btn" id="langToggleBtn" onclick="toggleLang(event)" data-no-i18n title="切换语言 (简体中文 / 正體中文 / English)" aria-label="切换语言">
@@ -3294,6 +3490,12 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         <span id="themeToggleIcon" class="theme-btn-icon"></span>
       </button>
       <div class="theme-dropdown" id="themeDropdown" role="menu" aria-label="选择颜色主题">
+        <div class="theme-style-group" role="group" aria-label="主题风格">
+          <button type="button" class="theme-option" data-theme-style-option="claude" onclick="selectStyle('claude', event)" role="menuitem">Claude</button>
+          <button type="button" class="theme-option" data-theme-style-option="material" onclick="selectStyle('material', event)" role="menuitem">Material</button>
+          <button type="button" class="theme-option" data-theme-style-option="miuix" onclick="selectStyle('miuix', event)" role="menuitem">MiuiX</button>
+        </div>
+        <div class="theme-sep" role="separator"></div>
         <button type="button" class="theme-option" id="themeOptLight" onclick="selectTheme('light', event)" role="menuitem">
           <svg class="theme-opt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="4"></circle>
@@ -3317,6 +3519,20 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
           </svg>
           <span class="theme-opt-text">跟随系统</span>
           <svg class="theme-opt-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </button>
+        <div class="theme-sep" role="separator"></div>
+        <!-- 色彩配置：打开调色台浮层（面板本身在文件尾部，见 #tunerBox）。
+             与上面三档是不同维度的事：那三档选「用哪套主题」，这里调「主题
+             用哪些颜色」——调的是当前亮/暗两套的变量，实时生效。 -->
+        <button type="button" class="theme-option" id="themeOptTuner" onclick="toggleThemeTuner(event)" role="menuitem">
+          <svg class="theme-opt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.12a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.56-2.5 5.56-5.55C21.96 6.01 17.46 2 12 2z"></path>
+            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle>
+            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle>
+            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle>
+            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
+          </svg>
+          <span class="theme-opt-text">色彩配置</span>
         </button>
       </div>
     </div>
@@ -3347,22 +3563,20 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     <div id="gatewayPageDesc" style="font-size:12px;color:var(--dim);margin-top:4px">管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。</div>
   </div>
   <!-- 版本中枢控制栏 (三列等高对齐网格) -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px">
+  <div class="realm-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px">
     
     <!-- 卡片 1: 国际版 (Global) -->
     <div id="tabIntl" class="realm-card active" onclick="switchViewRealm('intl')">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span class="realm-badge-intl">国际版 (Global)</span>
-          <span id="tabIntlDefaultBadge" class="badge ok mini" style="font-weight:600;display:none">默认出口</span>
-          <span id="tabIntlViewBadge" class="badge s mini" style="display:inline-block">当前视图</span>
-        </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span class="realm-badge-intl">国际版 (Global)</span>
+        <span class="mono" style="font-size:11px;color:var(--dim)">www.workbuddy.ai</span>
+        <span id="tabIntlDefaultBadge" class="badge ok mini" style="font-weight:600;display:none">默认出口</span>
+        <span id="tabIntlViewBadge" class="badge s mini" style="display:inline-block">当前视图</span>
       </div>
-      <div class="mono" style="font-size:11px;color:var(--dim);margin-bottom:8px">www.workbuddy.ai</div>
-      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:8px">
-        <div style="display:flex;align-items:baseline;gap:6px">
-          <span id="tabIntlCredits" style="font-size:22px;font-weight:700;color:var(--accent2);letter-spacing:-.5px" title="总剩余积分：全部账号（含停用）之和；「可用」只算启用且未触发限额护栏的账号">0</span>
-          <span style="font-size:12px;color:var(--dim)">剩余积分 · <span id="tabIntlAvailCred" style="color:var(--fg);font-weight:600">可用 —</span> · <span id="tabIntlAccts" style="color:var(--fg);font-weight:600">0/0 账号</span></span>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div class="credit-summary" style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;min-width:0">
+          <span id="tabIntlAvailCred" style="font-size:22px;font-weight:700;color:var(--accent2);letter-spacing:-.5px" title="可用积分：只算启用且未触发保留/限额护栏的账号之和，与「N/M 账号」同一口径">0</span>
+          <span style="font-size:12px;color:var(--dim)">/ <span id="tabIntlCredits" style="color:var(--fg);font-weight:600" title="总积分：全部账号（含停用）之和">0</span> 总积分 · <span id="tabIntlAccts" style="color:var(--fg);font-weight:600">0/0 账号</span></span>
         </div>
         <span id="tabIntlKeyBadge" class="badge s mini" style="font-weight:600">0 个 Key</span>
       </div>
@@ -3370,18 +3584,16 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 
     <!-- 卡片 2: 国内版 (China) -->
     <div id="tabCn" class="realm-card" onclick="switchViewRealm('cn')">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span class="realm-badge-cn">国内版 (China)</span>
-          <span id="tabCnDefaultBadge" class="badge ok mini" style="font-weight:600;display:none">默认出口</span>
-          <span id="tabCnViewBadge" class="badge warn mini" style="display:none">当前视图</span>
-        </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span class="realm-badge-cn">国内版 (China)</span>
+        <span class="mono" style="font-size:11px;color:var(--dim)">copilot.tencent.com</span>
+        <span id="tabCnDefaultBadge" class="badge ok mini" style="font-weight:600;display:none">默认出口</span>
+        <span id="tabCnViewBadge" class="badge warn mini" style="display:none">当前视图</span>
       </div>
-      <div class="mono" style="font-size:11px;color:var(--dim);margin-bottom:8px">copilot.tencent.com</div>
-      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:8px">
-        <div style="display:flex;align-items:baseline;gap:6px">
-          <span id="tabCnCredits" style="font-size:22px;font-weight:700;color:var(--accent2);letter-spacing:-.5px" title="总剩余积分：全部账号（含停用）之和；「可用」只算启用且未触发限额护栏的账号">0</span>
-          <span style="font-size:12px;color:var(--dim)">剩余积分 · <span id="tabCnAvailCred" style="color:var(--fg);font-weight:600">可用 —</span> · <span id="tabCnAccts" style="color:var(--fg);font-weight:600">0/0 账号</span></span>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div class="credit-summary" style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;min-width:0">
+          <span id="tabCnAvailCred" style="font-size:22px;font-weight:700;color:var(--accent2);letter-spacing:-.5px" title="可用积分：只算启用且未触发保留/限额护栏的账号之和，与「N/M 账号」同一口径">0</span>
+          <span style="font-size:12px;color:var(--dim)">/ <span id="tabCnCredits" style="color:var(--fg);font-weight:600" title="总积分：全部账号（含停用）之和">0</span> 总积分 · <span id="tabCnAccts" style="color:var(--fg);font-weight:600">0/0 账号</span></span>
         </div>
         <span id="tabCnKeyBadge" class="badge warn mini" style="font-weight:600">0 个 Key</span>
       </div>
@@ -3473,14 +3685,14 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <table id="modelsTable" class="data-cards">
         <thead>
           <tr>
-            <th style="text-align:left;width:200px">模型 ID</th>
-            <th style="text-align:left;width:100px">名称</th>
-            <th style="text-align:center;width:150px">消费倍率 / 优惠</th>
-            <th style="text-align:center;width:170px">模型能力</th>
-            <th style="text-align:center;width:100px">上下文窗口</th>
-            <th style="text-align:center;width:100px">最大输出</th>
-            <th style="text-align:left;width:170px">思考档位</th>
-            <th style="text-align:left">默认采样参数</th>
+            <th style="text-align:left;width:17%">模型 ID</th>
+            <th style="text-align:left;width:11%">名称</th>
+            <th style="text-align:center;width:12%">消费倍率 / 优惠</th>
+            <th style="text-align:center;width:14%">模型能力</th>
+            <th style="text-align:center;width:9%">上下文窗口</th>
+            <th style="text-align:center;width:9%">最大输出</th>
+            <th style="text-align:left;width:16%">思考档位</th>
+            <th style="text-align:left;width:12%;white-space:nowrap">默认采样参数</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -3847,6 +4059,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         <button data-dim="account">按账号 <span class="cnt" id="cntAccount">0</span></button>
         <button data-dim="key">按 API Key <span class="cnt" id="cntKey">0</span></button>
       </div>
+      <button type="button" class="dim-columns-btn" id="dimColumnsBtn" aria-expanded="false" aria-controls="dimColumnsMenu">列</button>
+      <div class="dim-columns-menu" id="dimColumnsMenu" hidden></div>
     </div>
     <div class="pbody" style="overflow-x:auto">
       <table class="dim" id="dimTable">
@@ -4235,48 +4449,48 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <section>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
           <div>
-        <section>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-            <div>
-        <section>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-            <div>
-              <h2 style="margin:0">启用 Anthropic Messages 接口 (Claude) <em id="setAnthropicMessagesState"></em></h2>
-              <div style="font-size:12px;color:var(--dim);margin-top:4px">
-                允许 Claude Code / Anthropic SDK 访问网关 /v1/messages。网关对内将其转换为 OpenAI Chat Completions 协议转发。
-              </div>
-              <div style="font-size:12px;color:var(--warn);margin-top:4px">
-                注意：转换层目前未保留 cache_control 语义，在长会话中可能因缓存命中率降低而导致积分消耗偏高。请知晓风险后再开启。默认关闭。
-              </div>
+            <h2 style="margin:0">启用 Anthropic Messages 接口 (Claude) <em id="setAnthropicMessagesState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              允许 Claude Code / Anthropic SDK 访问网关 /v1/messages。网关对内将其转换为 OpenAI Chat Completions 协议转发。
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
-                <input id="setAnthropicMessages" type="checkbox" style="width:16px;height:16px">
-                启用 Messages 接口
-              </label>
-              <button onclick="saveAnthropicMessages(this)">保存</button>
+            <div style="font-size:12px;color:var(--warn);margin-top:4px">
+              注意：转换层目前未保留 cache_control 语义，在长会话中可能因缓存命中率降低而导致积分消耗偏高。请知晓风险后再开启。默认关闭。
             </div>
           </div>
-        </section>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+              <input id="setAnthropicMessages" type="checkbox" style="width:16px;height:16px">
+              启用 Messages 接口
+            </label>
+            <button onclick="saveAnthropicMessages(this)">保存</button>
+          </div>
+        </div>
+      </section>
 
-              <h2 style="margin:0">免费额度耗尽回退积分版 <em id="setCreditFallbackState"></em></h2>
-              <div style="font-size:12px;color:var(--dim);margin-top:4px">
-                国际版 deepseek-v4.1-flash 免费额度在所有账号均耗尽（6004 撞线）后，自动回退到 deepseek-v4.1-flash-sg 付费通道。默认关闭。
-              </div>
-              <div style="font-size:12px;color:var(--warn);margin-top:4px">
-                注意：回退后将消耗账户中的真实积分（x0.03 倍率），请确认知晓积分成本后再开启。
-              </div>
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
+            <h2 style="margin:0">免费额度耗尽回退积分版 <em id="setCreditFallbackState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              国际版 deepseek-v4.1-flash 免费额度在所有账号均耗尽（6004 撞线）后，自动回退到 deepseek-v4.1-flash-sg 付费通道。默认关闭。
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
-                <input id="setCreditFallback" type="checkbox" style="width:16px;height:16px">
-                启用积分回退
-              </label>
-              <button onclick="saveCreditFallback(this)">保存</button>
+            <div style="font-size:12px;color:var(--warn);margin-top:4px">
+              注意：回退后将消耗账户中的真实积分（x0.03 倍率），请确认知晓积分成本后再开启。
             </div>
           </div>
-        </section>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+              <input id="setCreditFallback" type="checkbox" style="width:16px;height:16px">
+              启用积分回退
+            </label>
+            <button onclick="saveCreditFallback(this)">保存</button>
+          </div>
+        </div>
+      </section>
 
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
             <h2 style="margin:0">自动切换出站身份 <em id="setAutoSwitchState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
               某账号在某模型上被上游限流（429）时，自动在 WB / VSC / CLI 之间换身分重试，每轮最多 4 次。三条身分走不同的配额通道，开启后 429 会少一些。默认关闭。
@@ -4664,17 +4878,17 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     </div>
 
     <!-- 终端视窗 -->
-    <div style="background:#16140f;border:1px solid #2b2820;border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,.15)">
-      <div style="background:#1d1b15;border-bottom:1px solid #2b2820;padding:8px 14px;display:flex;align-items:center;justify-content:space-between">
+    <div style="background:var(--terminal-bg);border:1px solid var(--terminal-border);border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,.15)">
+      <div style="background:var(--terminal-head);border-bottom:1px solid #2b2820;padding:8px 14px;display:flex;align-items:center;justify-content:space-between">
         <div style="display:flex;align-items:center;gap:7px">
-          <span style="width:10px;height:10px;border-radius:50%;background:#ef4444;display:inline-block"></span>
-          <span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;display:inline-block"></span>
-          <span style="width:10px;height:10px;border-radius:50%;background:#10b981;display:inline-block"></span>
-          <span style="font-size:11px;color:#a5a29a;font-family:monospace;margin-left:8px">wb-proxy-console.log</span>
+          <span style="width:10px;height:10px;border-radius:50%;background:var(--terminal-error);display:inline-block"></span>
+          <span style="width:10px;height:10px;border-radius:50%;background:var(--terminal-warn);display:inline-block"></span>
+          <span style="width:10px;height:10px;border-radius:50%;background:var(--terminal-ok);display:inline-block"></span>
+          <span style="font-size:11px;color:var(--terminal-fg);font-family:monospace;margin-left:8px">wb-proxy-console.log</span>
         </div>
-        <div id="logTerminalStatus" style="font-size:11px;color:#7c796f;font-family:monospace">就绪</div>
+        <div id="logTerminalStatus" style="font-size:11px;color:var(--terminal-dim);font-family:monospace">就绪</div>
       </div>
-      <div id="logTerminalBody" style="height:620px;overflow-y:auto;padding:10px 12px;background:#16140f;color:#d6d3c9" onscroll="handleLogTerminalScroll()">
+      <div id="logTerminalBody" style="height:620px;overflow-y:auto;padding:10px 12px;background:var(--terminal-bg);color:var(--terminal-fg)" onscroll="handleLogTerminalScroll()">
         <div class="log-empty">正在拉取网关日志...</div>
       </div>
     </div>
@@ -5145,17 +5359,20 @@ function updateUI(){
   const intlActive = intlAccts.filter(isAcctActive).length;
   const cnActive = cnAccts.filter(isAcctActive).length;
 
+  // 区域卡片：大字 = 可用积分（只算 isAcctActive——启用且未触发保留/限额
+  // 护栏的账号，与旁边的 N/M 账号计数同一口径）；小字 = 总积分（全部账号
+  // 含停用）。数字各挂各的节点，样式（大字/小字）由 HTML 决定。
   const elIntlCred = document.getElementById("tabIntlCredits");
   if(elIntlCred) elIntlCred.textContent = hasIntlCred ? fmt(intlCred) : "—";
   const elIntlAvail = document.getElementById("tabIntlAvailCred");
-  if(elIntlAvail) elIntlAvail.innerHTML = '可用 <b style="color:var(--accent2)">' + (hasIntlAvail ? fmt(intlAvailCred) : "—") + '</b>';
+  if(elIntlAvail) elIntlAvail.innerHTML = '<span class="credit-kind">可用</span> ' + (hasIntlAvail ? fmt(intlAvailCred) : "—");
   const elIntlAcct = document.getElementById("tabIntlAccts");
   if(elIntlAcct) elIntlAcct.innerHTML = '<b style="color:var(--accent)">' + intlActive + '</b>/' + intlAccts.length + ' 账号';
 
   const elCnCred = document.getElementById("tabCnCredits");
   if(elCnCred) elCnCred.textContent = hasCnCred ? fmt(cnCred) : "—";
   const elCnAvail = document.getElementById("tabCnAvailCred");
-  if(elCnAvail) elCnAvail.innerHTML = '可用 <b style="color:var(--accent2)">' + (hasCnAvail ? fmt(cnAvailCred) : "—") + '</b>';
+  if(elCnAvail) elCnAvail.innerHTML = '<span class="credit-kind">可用</span> ' + (hasCnAvail ? fmt(cnAvailCred) : "—");
   const elCnAcct = document.getElementById("tabCnAccts");
   if(elCnAcct) elCnAcct.innerHTML = '<b style="color:var(--accent)">' + cnActive + '</b>/' + cnAccts.length + ' 账号';
 };
@@ -5294,7 +5511,7 @@ function renderModelsSourceLine(meta){
   const tip = '清单构建顺序：先请求上游 API（/v3/config，用当前视图版本的账号）→ 失败则读取本机桌面客户端缓存文件 → 都拿不到才用内置快照。'
     + '清单在 5 分钟缓存期内复用，过期自动重取；网关后台每天也会兜底获取一次；点「刷新模型清单」可立即从上游更新。';
   if(!meta || !meta.source){
-    el.style.cssText = CATALOG_BANNER_BASE + 'background:transparent;border:1px dashed var(--line);color:var(--dim)';
+    el.style.cssText = CATALOG_BANNER_BASE + 'flex-direction:column;align-items:flex-start;gap:2px;background:transparent;border:1px dashed var(--line);color:var(--dim)';
     el.title = tip;
     el.innerHTML = '数据来源：未知（当前网关进程版本较旧未提供来源信息，重启网关后可见）';
     return;
@@ -5320,6 +5537,7 @@ function renderModelsSourceLine(meta){
     origin += ' · 生成于 ' + at;
   }
   el.style.cssText = CATALOG_BANNER_BASE
+    + 'flex-direction:column;align-items:flex-start;gap:2px;'
     + 'background:var(--warn-soft);border:1px solid rgba(183,121,31,.35);color:var(--warn)';
   el.innerHTML = '<b>⚠ 当前为项目默认模型信息（未经 API 刷新）：模型、倍率数据可能不一致</b>'
     + '<span style="color:var(--dim)">数据出处：' + esc(origin)
@@ -5450,14 +5668,14 @@ function renderAvailableModels(){
     const samples = [];
     if(m.temperature != null) samples.push('温度 ' + esc(String(m.temperature)));
     if(m.top_p != null) samples.push('top_p ' + esc(String(m.top_p)));
-    const sampleCell = '<td style="text-align:left" data-label="默认采样参数">'
+    const sampleCell = '<td style="text-align:left;padding-right:14px" data-label="默认采样参数">'
       + (samples.length
-          ? '<span style="font-size:12px">' + samples.join(' · ') + '</span>'
+          ? '<span style="font-size:12px;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">' + samples.map(s => '<span style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px 8px">' + s + '</span>').join('') + '</span>'
           : '<span style="color:var(--dim)">—</span>')
       + '</td>';
 
     return '<tr>'
-      + '<td style="text-align:left" class="mono" data-label="模型 ID"><b>' + esc(m.id) + '</b></td>'
+      + '<td style="text-align:left" class="mono" data-label="模型 ID" title="' + esc(m.id) + '"><b>' + esc(m.id) + '</b></td>'
       + nameCell
       + '<td style="text-align:center" data-label="消费倍率">' + credBadge + '</td>'
       + '<td style="text-align:center" data-label="能力">' + capHtml + '</td>'
@@ -6467,7 +6685,60 @@ const GETJSON_INFLIGHT = new Map();
 // 挂死保护：网络层僵住时 fetch 可能永远不落定，登记项会一直占着这个 URL，之后
 // 每一轮轮询都陪它一起等。超过这个时长就把登记项视为已死，放行新请求。
 const GETJSON_STALE_MS = 60000;
+// ---- 顶栏：运行日志窗口 + 关闭服务 ------------------------------------
+// 「眼睛」按钮在新窗口打开运行日志页：服务端不 spawn 任何进程，Windows /
+// macOS / 容器走同一条路（#427）。关闭服务不能凭一次 postJSON 的成败就宣布
+// 成功——容器或守护进程可能把进程重新拉起，所以要用 /health 复核（#426）。
+let GATEWAY_DOWN = false;
+
+function toggleConsoleWindow(){
+  let win = null;
+  try{ win = window.open('/dashboard?tab=logs', 'wb-logs', 'width=1000,height=640'); }catch(e){}
+  if(!win){ toast('浏览器拦截了新窗口，请允许弹窗后重试', 'bad'); return; }
+  try{ win.focus(); }catch(e){}
+  toast('已在新窗口打开运行日志', 'ok');
+}
+
+async function shutdownGateway(opts){
+  if(!confirm('确定关闭网关服务？进程会退出，需要重新运行启动脚本才能再次使用。')) return;
+  const pollMs = (opts && opts.pollMs) || 600;
+  const tries = (opts && opts.tries) || 10;
+  let sent = false;
+  try{ await postJSON('/shutdown', {}); sent = true; }
+  catch(e){
+    if(String(e.message) === 'unauthorized'){
+      toast('面板会话已失效，请重新登录后再关闭服务', 'bad');
+      return;
+    }
+    // 进程退出会掐断连接（Failed to fetch / 空响应），真正死没死看 /health。
+  }
+  for(let i = 0; i < tries; i++){
+    await new Promise(function(resolve){ setTimeout(resolve, pollMs); });
+    let alive = false;
+    try{
+      const res = await fetch('/health', {cache: 'no-store'});
+      alive = !!res.ok;
+    }catch(e){ alive = false; }
+    if(!alive) break;
+    if(i === tries - 1){
+      toast(sent
+        ? '停止请求已发送，但服务仍在运行：可能由容器或守护进程自动拉起'
+        : '关闭请求失败：服务仍在运行', sent ? 'warn' : 'bad');
+      return;
+    }
+  }
+  GATEWAY_DOWN = true;
+  toast('网关服务已关闭，需重新运行启动脚本才能恢复', 'warn');
+  const dot = document.getElementById('statusDot');
+  if(dot) dot.style.background = 'var(--bad)';
+  const t = document.getElementById('btnConsoleToggle');
+  if(t) t.disabled = true;
+  const s = document.getElementById('btnGatewayShutdown');
+  if(s) s.disabled = true;
+}
 async function getJSON(url, opts){
+  // 服务已关闭：所有轮询静默挂起，不再发请求（见 shutdownGateway）。
+  if(GATEWAY_DOWN) return new Promise(function(){});
   // cache 模式分两档，按"响应体在服务端是否有一份 TTL 缓存"来选：
   //
   //  - 默认 no-store：不落盘、每次整份重取。登录轮询（/accounts/login/poll）、
@@ -6503,6 +6774,7 @@ async function getJSON(url, opts){
 // no-store，免得"顺手加上"之后把必须每次都新的响应也变成可缓存校验的。
 const POLL_READ = {revalidate: true};
 async function postJSON(url, body){
+  if(GATEWAY_DOWN) throw new Error('服务已关闭');
   const r = await fetch(url, {method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
                               body: JSON.stringify(body || {})});
   const t = await r.text();
@@ -6923,29 +7195,46 @@ function accountRow(a){
   // The visible label keeps the exact truncation it had before; the tooltip carries
   // the whole upstream body (lastErrorDetail) so a 429 reason is readable on hover
   // without widening the card.
+  // 「到期 358 days」收成「到期：358d」；完整原值（data-tip）保持后端给的原样。
+  const expRaw = String(a.expiresIn || '?');
+  const expShort = expRaw.replace(/\s*days?$/i, 'd').replace(/\s*hours?$/i, 'h');
+  // 报错只画可扫读的短标签「HTTP 429 · code:6004」；完整响应进悬浮气泡
+  // （data-tip），行尾的 ⓘ 提示可悬停查看。原样打印整段响应会把账号列
+  // 拉宽、也读不出重点。
   const errFull = a.lastErrorDetail || a.lastError || '';
-  const err = a.lastError && !(pills && a.lastError === 'HTTP 429 (model throttled)')
-    ? '<div class="hint" style="color:var(--warn);margin:2px 0 0;cursor:help" data-tip="' + esc(errFull) + '">' + esc(a.lastError) + '</div>' : '';
+  let err = '';
+  if (a.lastError && !(pills && a.lastError === 'HTTP 429 (model throttled)')) {
+    const httpM = String(a.lastError).match(/HTTP\s+(\d{3})/);
+    const codeM = String(errFull).match(/"code"\s*:\s*(\d+)/);
+    const label = httpM
+      ? ('HTTP ' + httpM[1] + (codeM ? ' · code:' + codeM[1] : ''))
+      : String(a.lastError).slice(0, 60);
+    err = '<div class="acct-err" data-tip="' + esc(errFull) + '">'
+        + '<span class="err-label">' + esc(label) + '</span>'
+        + '<span class="err-info" aria-hidden="true">ⓘ</span></div>';
+  }
   const cred = a.credits;
   let expBadge = '';
   if(cred && cred.earliest_expiring && cred.earliest_expiring.days_left !== undefined && cred.earliest_expiring.days_left !== null){
     const d = Number(cred.earliest_expiring.days_left);
     if(d <= 3 && d >= 0){
-      expBadge = '<span class="badge mini bad" style="font-size:10px;padding:1px 4px" title="最近套餐包将于 ' + esc(cred.earliest_expiring.cycle_end_time.slice(5,10)) + ' 到期 (剩' + d.toFixed(1) + '天)">临期</span>';
+      const expEnd = String(cred.earliest_expiring.cycle_end_time || '');
+      expBadge = '<span class="badge mini bad" style="font-size:10px;padding:1px 4px" title="最近套餐包将于 ' + esc(expEnd.slice(5,10)) + ' 到期 (剩' + d.toFixed(1) + '天)">临期</span>';
     } else if(d <= 7 && d >= 0){
-      expBadge = '<span class="badge mini warn" style="font-size:10px;padding:1px 4px" title="最近套餐包将于 ' + esc(cred.earliest_expiring.cycle_end_time.slice(5,10)) + ' 到期 (剩' + Math.ceil(d) + '天)">7天内到期</span>';
+      const expEnd = String(cred.earliest_expiring.cycle_end_time || '');
+      expBadge = '<span class="badge mini warn" style="font-size:10px;padding:1px 4px" title="最近套餐包将于 ' + esc(expEnd.slice(5,10)) + ' 到期 (剩' + Math.ceil(d) + '天)">7天内到期</span>';
     }
   }
   const credText = cred
-    ? ('<div style="display:inline-flex;align-items:center;gap:6px">'
-       + '<b style="color:var(--accent2)">' + fmt(cred.remain) + '</b>'
-       + '<span style="color:var(--dim)">/ ' + fmt(cred.size) + '</span>'
-       + expBadge
-       + '<span class="badge mini" style="font-size:10px;padding:1px 5px;cursor:pointer" onclick="openCreditsDetail(&quot;' + uidAttr + '&quot;)" title="点击查看积分与套餐明细">明细</span>'
+    ? ('<div class="credit-stack">'
+       + '<div class="credit-main"><b>' + fmt(cred.remain) + '</b>'
+       + '<span class="credit-total">/ ' + fmt(cred.size) + '</span></div>'
+       + '<div class="credit-meta">' + expBadge
+       + '<span class="badge mini" style="cursor:pointer" onclick="openCreditsDetail(&quot;' + uidAttr + '&quot;)" title="点击查看积分与套餐明细">明细</span></div>'
        + '</div>')
-    : ('<div style="display:inline-flex;align-items:center;gap:6px">'
-       + '<span style="color:var(--dim)">未查询</span>'
-       + '<span class="badge mini" style="font-size:10px;padding:1px 5px;cursor:pointer" onclick="openCreditsDetail(&quot;' + uidAttr + '&quot;)" title="点击查询积分明细">查询</span>'
+    : ('<div class="credit-stack">'
+       + '<div class="credit-main"><span style="color:var(--dim)">未查询</span></div>'
+       + '<div class="credit-meta"><span class="badge mini" style="cursor:pointer" onclick="openCreditsDetail(&quot;' + uidAttr + '&quot;)" title="点击查询积分明细">查询</span></div>'
        + '</div>');
   // 权重下拉：选项给 1-10；历史值超出范围时不让 select 悄悄跳回最近的档位，
   // 补一个选中项把真实值显示出来。
@@ -6955,25 +7244,37 @@ function accountRow(a){
     weightOpts += '<option value="' + i + '"' + (weight === i ? ' selected' : '') + '>' + i + '</option>';
   }
   if(weight > 10) weightOpts += '<option value="' + weight + '" selected>' + weight + '</option>';
+  // 人工禁用的模型名单（账号级黑名单，与自动冷却无关）
+  const deny = (a.disabledModels || []);
   return '<tr>'
     + '<td style="text-align:center;white-space:nowrap" data-label="版本">' + realmBadge + '</td>'
     + '<td style="text-align:left" data-label="账号">'
-    +   '<div style="font-weight:600;font-size:13px;color:var(--fg)">' + esc(a.nickname) + '</div>'
-    + '<div class="mono" style="color:var(--dim);font-size:11px;white-space:nowrap">' + esc(a.uid.slice(0,8)) + ' · ' + esc(a.source) + ' · 到期 ' + esc(a.expiresIn || '?') + '</div>'
-    + (a.machineId ? ('<div class="mono" style="color:var(--dim);font-size:10px;margin-top:2px;white-space:nowrap" title="由账号UID稳定派生的专属设备码，防多号关联风控">设备码: ' + esc(a.machineId.slice(0,14)) + '...</div>') : '')
-    + (a.note
-        ? '<div style="font-size:11px;color:var(--accent2);margin-top:2px;cursor:pointer" title="点击编辑备注" onclick="editAccountNote(&quot;' + uidAttr + '&quot;)">备注: ' + esc(a.note) + '</div>'
-        : '<div style="font-size:10px;color:var(--dim);margin-top:2px;cursor:pointer;opacity:.7" title="点击添加备注，比如「批量」/「自用」" onclick="editAccountNote(&quot;' + uidAttr + '&quot;)">+ 备注</div>')
+    // 账号名（大一号）+ 备注 chip 同一行；备注从独立一行收进账号后面。
+    +   '<div class="acct-name-row">'
+    +     '<span class="acct-name" title="' + esc(a.nickname) + '">' + esc(a.nickname) + '</span>'
+    +     (a.note
+          ? '<span class="note-chip has" title="点击编辑备注" onclick="editAccountNote(&quot;' + uidAttr + '&quot;)">' + esc(a.note) + '</span>'
+          : '<span class="note-chip" title="点击添加备注，比如「批量」/「自用」" onclick="editAccountNote(&quot;' + uidAttr + '&quot;)">+ 备注</span>')
+    +   '</div>'
+    // 次要信息收成一行：值截断到几个字符，完整值走悬浮气泡（data-tip）。
+    +   '<div class="acct-meta mono">'
+    +     '<span data-tip="账号 ID：' + esc(String(a.uid || '')) + '">' + esc(a.source) + '：' + esc(String(a.uid || '').slice(0, 5)) + '…</span>'
+    +     ' · <span data-tip="凭证到期：' + esc(expRaw) + '">到期：' + esc(expShort) + '</span>'
+    +     (a.machineId ? ' · <span data-tip="设备码：' + esc(String(a.machineId)) + '（由账号 UID 稳定派生的专属设备码，防多号关联风控）">设备码:' + esc(String(a.machineId).slice(0, 4)) + '…</span>' : '')
+    +   '</div>'
+    + (deny.length
+        ? '<div style="font-size:11px;color:var(--warn);margin-top:2px;cursor:pointer" title="点击编辑该账号禁用的模型（逗号分隔；留空 = 不限制）" onclick="editAccountDisabledModels(&quot;' + uidAttr + '&quot;)">禁用的模型: ' + esc(deny.join(', ')) + '</div>'
+        : '<div style="font-size:10px;color:var(--dim);margin-top:2px;cursor:pointer;opacity:.7" title="点击设置该账号禁用的模型：命中的模型不再派给这个号，池子里其他号照常接单" onclick="editAccountDisabledModels(&quot;' + uidAttr + '&quot;)">+ 禁用模型</div>')
     + err + pills + limitPills + '</td>'
     + '<td style="text-align:center" data-label="状态">' + state + '</td>'
     + '<td style="text-align:center" data-label="今日活动">' + activityStatusChip(a) + '</td>'
     + '<td style="text-align:center" data-label="出口">' + slotSelectHtml(a) + '</td>'
     + '<td style="text-align:center;white-space:nowrap" data-label="权重">'
     +   '<select class="mini-select" title="' + esc(WEIGHT_TIP) + '" onchange="setAccountWeight(&quot;' + uidAttr + '&quot;, this.value, this)">' + weightOpts + '</select></td>'
-    + '<td style="text-align:left;white-space:nowrap" data-label="积分">' + credText + '</td>'
+    + '<td style="text-align:left;white-space:normal" data-label="积分">' + credText + '</td>'
     + '<td style="text-align:right" data-label="请求">' + fmt(usage.requests) + '</td>'
-    + '<td style="text-align:right" data-label="总 token">' + fmt(usage.total_tokens) + '</td>'
-    + '<td style="text-align:right" data-label="缓存">' + fmt(usage.cached_tokens) + '</td>'
+    + '<td style="text-align:right" data-label="总 token" data-tip="' + fmt(usage.total_tokens) + '">' + fmtCompact(usage.total_tokens) + '</td>'
+    + '<td style="text-align:right" data-label="缓存" data-tip="' + fmt(usage.cached_tokens) + '">' + fmtCompact(usage.cached_tokens) + '</td>'
     + '<td class="acct-actions" style="text-align:center;white-space:nowrap;vertical-align:middle">'
     + '<div class="acct-actions-col">'
     +   '<div class="acct-actions-row">'
@@ -7439,6 +7740,96 @@ async function editAccountNote(uid){
   }catch(e){
     toast('备注保存失败: ' + e.message, 'bad');
   }
+}
+
+async function editAccountDisabledModels(uid){
+  const cur = (window.ACCOUNTS || []).find(a => a.uid === uid);
+  if(!cur) return;
+  // 按**该账号自己的**区域取模型清单：看板当前视图切到别的区域时，
+  // MODELS_DATA 里那份是另一个区域的，用它会给出对不上的选项。
+  const realm = cur.realm || window.VIEW_REALM;
+  let models = [];
+  try{
+    const r = await getJSON('/v1/models?realm=' + encodeURIComponent(realm));
+    models = (r.data || []).map(m => m.id).filter(Boolean).sort();
+  }catch(e){
+    toast('取模型清单失败: ' + e.message, 'bad');
+    return;
+  }
+  if(!models.length){ toast('该区域没有可用模型', 'bad'); return; }
+
+  const denied = new Set(cur.disabledModels || []);
+  // 面板按「启用的模型」勾选，默认全选 = 不限制；**取消勾选即禁用**。
+  const picked = new Set(models.filter(m => !denied.has(m)));
+  const nick = esc(cur.nickname || uid.slice(0, 8));
+
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.style.display = 'flex';
+  mask.innerHTML = '<div class="modal" role="dialog" aria-modal="true" style="width:min(560px,100%)">'
+    + '<div class="modal-hd"><h2>启用模型 · ' + nick + '</h2>'
+    +   '<button class="modal-x" aria-label="关闭">×</button></div>'
+    + '<div class="modal-bd">'
+    +   '<div style="font-size:12px;color:var(--dim);line-height:1.7;margin-bottom:10px">'
+    +     '取消勾选的模型<b>不再派给这个账号</b>，请求会自动落到池子里其他账号；其余模型不受影响。'
+    +     '<br>默认全部勾选 = 不限制。区域 <b>' + esc(realm) + '</b>，共 ' + models.length + ' 个模型。'
+    +   '</div>'
+    +   '<div id="mdmList" style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px"></div>'
+    +   '<div style="display:flex;align-items:center;gap:8px;margin-top:12px">'
+    +     '<button class="sec" id="mdmAll">全选</button>'
+    +     '<button class="sec" id="mdmNone">全不选</button>'
+    +     '<span style="flex:1"></span><span id="mdmCount" style="font-size:12px"></span>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="modal-ft">'
+    +   '<button class="sec" id="mdmCancel">取消</button>'
+    +   '<button id="mdmSave">保存</button>'
+    + '</div></div>';
+
+  const listEm = mask.querySelector('#mdmList');
+  const countEm = mask.querySelector('#mdmCount');
+  listEm.innerHTML = models.map(m =>
+    '<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-size:13px">'
+    + '<input type="checkbox" data-model="' + esc(m) + '"' + (picked.has(m) ? ' checked' : '') + '>'
+    + '<span class="mono">' + esc(m) + '</span></label>').join('');
+  function updateCount(){
+    const off = models.length - picked.size;
+    countEm.textContent = off ? ('将禁用 ' + off + ' 个') : '不限制';
+    countEm.style.color = off ? 'var(--warn)' : 'var(--dim)';
+  }
+  updateCount();
+  // 只更新计数、不重建复选框：重建会把滚动位置和焦点抖掉。
+  listEm.addEventListener('change', function(ev){
+    const box = ev.target;
+    if(!box || box.type !== 'checkbox') return;
+    if(box.checked) picked.add(box.dataset.model);
+    else picked.delete(box.dataset.model);
+    updateCount();
+  });
+  function setAll(on){
+    picked.clear();
+    if(on) models.forEach(m => picked.add(m));
+    listEm.querySelectorAll('input[type=checkbox]').forEach(b => { b.checked = on; });
+    updateCount();
+  }
+  mask.querySelector('#mdmAll').onclick = function(){ setAll(true); };
+  mask.querySelector('#mdmNone').onclick = function(){ setAll(false); };
+  function close(){ mask.remove(); }
+  mask.querySelector('.modal-x').onclick = close;
+  mask.querySelector('#mdmCancel').onclick = close;
+  mask.addEventListener('click', function(ev){ if(ev.target === mask) close(); });
+  mask.querySelector('#mdmSave').onclick = async function(){
+    const denyList = models.filter(m => !picked.has(m));   // 未勾选 = 禁用
+    try{
+      await postJSON('/accounts/set', {uid: uid, disabledModels: denyList});
+      await loadAccounts();
+      toast(denyList.length ? ('已禁用 ' + denyList.length + ' 个模型') : '已取消模型禁用', 'ok');
+      close();
+    }catch(e){
+      toast('保存失败: ' + e.message, 'bad');
+    }
+  };
+  document.body.appendChild(mask);
 }
 async function setAccountProduct(uid, prod, btn){
   const names = {
@@ -8676,14 +9067,14 @@ async function refreshInner(gen){
   const recentFp = [
     total, RECENT_PAGE, RECENT_LIMIT, window.VIEW_REALM,
     PRICING_ON ? '1' : '0', costCurrency, costUsdRate,
-    rows.map(r => acctName(r.account)).join('\u0001'),
+    rows.map(r => acctName(r.account) + '\u0000' + (r.key_name || '')).join('\u0001'),
     JSON.stringify(rows),
   ].join('\u0002');
   if(recentFp === lastRecentFp) return;
   lastRecentFp = recentFp;
   COST_TIP_ROWS.clear();
   document.getElementById('recent').innerHTML = rows.length ?
-    '<table class="data-cards"><thead><tr><th>时间</th><th>模型</th><th>上游</th><th>推理强度</th><th>账号</th><th>模式</th><th>结果</th><th>耗时</th><th>首字</th><th>速度</th><th>输入</th><th>输出</th><th>思考</th><th>缓存</th><th>总 token</th><th>积分</th><th class="pricing-col" style="color:var(--warn)">估算价格</th></tr></thead><tbody>'
+    '<table class="data-cards"><thead><tr><th>时间</th><th>模型</th><th>上游</th><th>推理强度</th><th>账号</th><th>API Key</th><th>模式</th><th>结果</th><th>耗时</th><th>首字</th><th>速度</th><th>输入</th><th>输出</th><th>思考</th><th>缓存</th><th>总 token</th><th>积分</th><th class="pricing-col" style="color:var(--warn)">估算价格</th></tr></thead><tbody>'
     + rows.map((r, i) => {
         // 关闭时不登记悬停明细，也不挂 data-cost-key：列还在（观感不变），
         // 但没有任何可解释的价格，省掉整张表的明细构建与 hover 开销。
@@ -8695,6 +9086,7 @@ async function refreshInner(gen){
         + '<td data-label="上游">' + upstreamBadge(r) + '</td>'
         + '<td data-label="推理强度">' + (r.reasoning_effort ? ('<span class="badge-effort">' + esc(r.reasoning_effort) + '</span>') : '<span style="color:var(--dim)">—</span>') + '</td>'
         + '<td class="mono" style="font-size:11px;color:var(--dim)" data-label="账号" title="' + esc(r.account||'') + '">' + esc(acctName(r.account)) + '</td>'
+        + '<td class="mono" style="font-size:11px;color:var(--dim)" data-label="API Key" title="' + esc(r.key||'') + '">' + esc(r.key_name || '—') + '</td>'
         + '<td data-label="模式"><span class="badge ' + (r.stream?'s':'') + '">' + (r.stream?'流式':'非流式') + '</span></td>'
         + '<td data-label="结果">' + outcomeBadge(r) + '</td>'
         + '<td data-label="耗时">' + ms(r.elapsed_ms) + '</td>'
@@ -12966,7 +13358,7 @@ function renderUsageSeries(data){
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
   if(!series.length){
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--chart-text').trim() || '#64748b';
     ctx.font = '12px sans-serif';
     ctx.fillText('当前范围没有请求数据', 12, 24);
     return;
@@ -12978,7 +13370,7 @@ function renderUsageSeries(data){
   const maxReq = Math.max(1, ...series.map(b => b.requests || 0));
   const slot = plotW / series.length;
   const barW = Math.max(1, slot - 2);
-  ctx.strokeStyle = '#1e293b';
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--chart-axis').trim() || '#1e293b';
   ctx.beginPath();
   ctx.moveTo(pad.l, pad.t);
   ctx.lineTo(pad.l, pad.t + plotH);
@@ -12987,10 +13379,10 @@ function renderUsageSeries(data){
   series.forEach((b, i) => {
     const h = plotH * (b.total_tokens || 0) / maxTokens;
     const x = pad.l + slot * i + 1;
-    ctx.fillStyle = 'rgba(56,189,248,.55)';
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--chart-bar').trim() || 'rgba(56,189,248,.55)';
     ctx.fillRect(x, pad.t + plotH - h, barW, h);
   });
-  ctx.strokeStyle = '#a78bfa';
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--chart-line').trim() || '#a78bfa';
   ctx.beginPath();
   series.forEach((b, i) => {
     const x = pad.l + slot * (i + 0.5);
@@ -12998,7 +13390,7 @@ function renderUsageSeries(data){
     if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
   ctx.stroke();
-  ctx.fillStyle = '#64748b';
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--chart-text').trim() || '#64748b';
   ctx.font = '10px monospace';
   ctx.fillText(fmt(maxTokens), 4, pad.t + 8);
   ctx.fillText('0', 4, pad.t + plotH);
@@ -13948,7 +14340,13 @@ function buildHeatGrid(heat){
 /* ---------------- 用量明细（维度切换） ---------------- */
 const dimDefs = {
   model: {
-    head: ['模型', '请求', 'Token', '平均速度', '缓存命中', '花费'],
+    head: ['模型', '请求', 'Token', '平均速度', '缓存命中', '消耗积分', '花费'],
+    columns: [
+      {id:'who', label:'模型'}, {id:'req', label:'请求', align:'num'},
+      {id:'tok', label:'Token'}, {id:'speed', label:'平均速度', align:'num'},
+      {id:'cache', label:'缓存命中', align:'num'}, {id:'credit', label:'消耗积分', align:'num'},
+      {id:'cost', label:'花费', align:'num'},
+    ],
     rows(){
       const a = state.analytics; if (!a) return [];
       const list = Array.isArray(a.models) ? a.models : Object.entries(a.models || {}).map(([name,v])=>({model:name, window:v}));
@@ -13960,12 +14358,19 @@ const dimDefs = {
         tokSub: `思考 ${fmtCompact(m.window.reasoning_tokens ?? m.window.reasoning ?? 0)} · 缓存 ${fmtCompact(m.window.cached_tokens ?? 0)}`,
         speed: m.window.speed_avg,
         cache: m.window.cache_hit_pct,
+        credit: m.window.credit != null ? Number(m.window.credit).toFixed(2) : '—',
         cost: m.window.cost_cny,
       }));
     }
   },
   account: {
-    head: ['账号', '请求', 'Token', '平均速度', '缓存命中', '剩余积分', '花费'],
+    head: ['账号', '请求', 'Token', '平均速度', '缓存命中', '消耗积分', '花费'],
+    columns: [
+      {id:'who', label:'账号'}, {id:'req', label:'请求', align:'num'},
+      {id:'tok', label:'Token'}, {id:'speed', label:'平均速度', align:'num'},
+      {id:'cache', label:'缓存命中', align:'num'}, {id:'credit', label:'消耗积分', align:'num'},
+      {id:'cost', label:'花费', align:'num'},
+    ],
     rows(){
       const a = state.analytics; if (!a) return [];
       return (a.accounts || []).map(acc => ({
@@ -13976,13 +14381,19 @@ const dimDefs = {
         tokSub: `思考 ${fmtCompact(acc.window.reasoning_tokens)} · 缓存 ${fmtCompact(acc.window.cached_tokens)}`,
         speed: acc.window.speed_avg,
         cache: acc.window.cache_hit_pct,
-        remain: acc.credits ? acc.credits.remain : null,
+        credit: acc.window.credit != null ? Number(acc.window.credit).toFixed(2) : '—',
         cost: acc.window.cost_cny,
       }));
     }
   },
   key: {
-    head: ['API Key', '请求', 'Token', '平均速度', '缓存命中', '花费'],
+    head: ['API Key', '请求', 'Token', '平均速度', '缓存命中', '消耗积分', '花费'],
+    columns: [
+      {id:'who', label:'API Key'}, {id:'req', label:'请求', align:'num'},
+      {id:'tok', label:'Token'}, {id:'speed', label:'平均速度', align:'num'},
+      {id:'cache', label:'缓存命中', align:'num'}, {id:'credit', label:'消耗积分', align:'num'},
+      {id:'cost', label:'花费', align:'num'},
+    ],
     rows(){
       const a = state.analytics; if (!a) return [];
       return (a.keys || []).map(k => ({
@@ -13993,11 +14404,55 @@ const dimDefs = {
         tokSub: `思考 ${fmtCompact(k.window.reasoning_tokens)} · 缓存 ${fmtCompact(k.window.cached_tokens)}`,
         speed: k.window.speed_avg,
         cache: k.window.cache_hit_pct,
+        credit: k.window.credit != null ? Number(k.window.credit).toFixed(2) : '—',
         cost: k.window.cost_cny,
       }));
     }
   },
 };
+const DIM_LAYOUT_KEY = 'wb-analytics-dim-layout-v1';
+function dimLayout(dim){
+  const known = dimDefs[dim].columns.map(c => c.id);
+  const fallback = {order: known.slice(), hidden: []};
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(DIM_LAYOUT_KEY + ':' + dim) || 'null'); } catch(e){}
+  const order = [], seen = new Set();
+  (saved && Array.isArray(saved.order) ? saved.order : []).forEach(id => {
+    if(known.includes(id) && !seen.has(id)){ seen.add(id); order.push(id); }
+  });
+  known.forEach(id => { if(!seen.has(id)) order.push(id); });
+  const hidden = new Set(saved && Array.isArray(saved.hidden) ? saved.hidden.filter(id => known.includes(id)) : []);
+  hidden.delete('who');
+  if(order.every(id => hidden.has(id))) hidden.delete('who');
+  return {order, hidden: Array.from(hidden)};
+}
+function saveDimLayout(dim, layout){
+  try { localStorage.setItem(DIM_LAYOUT_KEY + ':' + dim, JSON.stringify(layout)); } catch(e){}
+}
+function visibleDimColumns(dim){
+  const def = dimDefs[dim], layout = dimLayout(dim);
+  return layout.order.map(id => def.columns.find(c => c.id === id)).filter(c => c && !layout.hidden.includes(c.id));
+}
+function renderDimColumnsMenu(){
+  const menu = $('dimColumnsMenu'); if(!menu) return;
+  const def = dimDefs[state.dim], layout = dimLayout(state.dim);
+  const byId = Object.fromEntries(def.columns.map(c => [c.id, c]));
+  menu.innerHTML = layout.order.map(id => {
+    const c = byId[id]; if(!c) return '';
+    const locked = id === 'who';
+    return `<label class="dim-col-item ${locked ? 'locked' : ''}" draggable="${locked ? 'false' : 'true'}" data-dim-col="${id}">
+      <span class="dim-col-grip">${locked ? '•' : '⋮⋮'}</span><input type="checkbox" ${layout.hidden.includes(id) ? '' : 'checked'} ${locked ? 'disabled checked' : ''} data-dim-toggle="${id}"><span>${c.label}</span></label>`;
+  }).join('');
+}
+function updateDimLayout(dim, mutate){
+  const layout = dimLayout(dim); mutate(layout);
+  layout.order = layout.order.filter((id, i, arr) => arr.indexOf(id) === i && dimDefs[dim].columns.some(c => c.id === id));
+  dimDefs[dim].columns.forEach(c => { if(!layout.order.includes(c.id)) layout.order.push(c.id); });
+  layout.hidden = layout.hidden.filter(id => id !== 'who' && layout.order.includes(id));
+  if(layout.order.every(id => layout.hidden.includes(id))) layout.hidden = layout.hidden.filter(id => id !== 'who');
+  saveDimLayout(dim, layout); renderDim();
+}
+
 
 function renderDim(){
   const a = state.analytics;
@@ -14008,12 +14463,13 @@ function renderDim(){
     $('cntKey').textContent = a ? cnt('key') : 0;
   }
   const def = dimDefs[state.dim];
+  const columns = visibleDimColumns(state.dim);
   const rows = def.rows()
     .filter(r => (r.req || 0) > 0 || (r.tok || 0) > 0)
     .sort((a, b) => (b.tok || 0) - (a.tok || 0));
-  $('dimHead').innerHTML = '<tr>' + def.head.map((h, i) => `<th class="${i ? 'num' : ''}">${h}</th>`).join('') + '</tr>';
+  $('dimHead').innerHTML = '<tr>' + columns.map(c => `<th data-dim-col="${c.id}" draggable="true" class="${c.align === 'num' ? 'num' : ''}">${c.label}</th>`).join('') + '</tr>';
   if (!rows.length){
-    $('dimBody').innerHTML = `<tr><td colspan="${def.head.length}" class="skel">该区间暂无数据</td></tr>`;
+    $('dimBody').innerHTML = `<tr><td colspan="${columns.length}" class="skel">该区间暂无数据</td></tr>`;
     return;
   }
   const maxTok = Math.max(1, ...rows.map(r => r.tok || 0));
@@ -14025,19 +14481,17 @@ function renderDim(){
     const remainTxt = r.remain != null
       ? (r.remain > 100 ? `${fmtCompact(r.remain)}` : `<span class="${r.remain > 10 ? '' : 'ratio-bad'}">${Number(r.remain).toFixed(1)}</span>`)
       : '—';
-    return `<tr class="dim-row" data-key="${encodeURIComponent(r.key || '')}">
-      <td>${canExpand ? '<span class="expander">▶</span>' : ''}${r.who}</td>
-      <td class="num">${numSpan(r.req)}</td>
-      <td>
-        <div class="tokcell"><span class="t">${numSpan(r.tok)}</span>
-          <div class="minibar"><i style="width:${Math.max(2,pct)}%;--bar-color:${colors[ri % colors.length]}"></i></div>
-          <span class="sub">${r.tokSub || ''}</span></div>
-      </td>
-      <td class="num">${r.speed != null ? Number(r.speed).toFixed(0) + ' tok/s' : '—'}</td>
-      <td class="num ${cacheCls}">${fmtPct(r.cache)}</td>
-      ${r.remain !== undefined ? `<td class="num">${remainTxt}</td>` : ''}
-      <td class="num">${r.cost != null ? fmtCostCny(r.cost) : '—'}</td>
-    </tr>`;
+    const cells = {
+      who: `${canExpand ? '<span class="expander">▶</span>' : ''}${r.who}`,
+      req: numSpan(r.req),
+      tok: `<div class="tokcell"><span class="t">${numSpan(r.tok)}</span><div class="minibar"><i style="width:${Math.max(2,pct)}%;--bar-color:${colors[ri % colors.length]}"></i></div><span class="sub">${r.tokSub || ''}</span></div>`,
+      speed: r.speed != null ? Number(r.speed).toFixed(0) + ' tok/s' : '—',
+      cache: fmtPct(r.cache),
+      credit: (r.credit != null && r.credit !== '—') ? (Number(r.credit) > 0 ? '<b style="color:var(--warn)">'+r.credit+'</b>' : r.credit) : '—',
+      remain: remainTxt,
+      cost: r.cost != null ? fmtCostCny(r.cost) : '—',
+    };
+    return `<tr class="dim-row" data-key="${encodeURIComponent(r.key || '')}">` + columns.map(c => `<td class="${c.align === 'num' ? 'num ' : ''}${c.id === 'cache' ? cacheCls : ''}" data-dim-col="${c.id}">${cells[c.id] == null ? '—' : cells[c.id]}</td>`).join('') + '</tr>';
   }).join('');
   applyOpenKey();
 }
@@ -14094,7 +14548,7 @@ function donutHTML(items, colors){
   </div>`;
 }
 function buildExpandRow(rowKey){
-  const cols = dimDefs[state.dim].head.length;
+  const cols = visibleDimColumns(state.dim).length;
   let items = [], label = '';
   if (state.dim === 'model'){
     items = modelByAccount(decodeURIComponent(rowKey));
@@ -14190,7 +14644,59 @@ $('dimTabs').addEventListener('click', ev => {
   state.dim = btn.dataset.dim;
   state.openKey = null;
   renderDim();
+  renderDimColumnsMenu();
 });
+const dimColumnsBtn = $('dimColumnsBtn');
+const dimColumnsMenu = $('dimColumnsMenu');
+if(dimColumnsBtn && dimColumnsMenu){
+  dimColumnsBtn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    const open = dimColumnsMenu.hidden;
+    dimColumnsMenu.hidden = !open;
+    dimColumnsBtn.setAttribute('aria-expanded', String(open));
+    if(open) renderDimColumnsMenu();
+  });
+  dimColumnsMenu.addEventListener('change', ev => {
+    const id = ev.target && ev.target.dataset && ev.target.dataset.dimToggle;
+    if(!id || id === 'who') return;
+    updateDimLayout(state.dim, layout => {
+      const hidden = new Set(layout.hidden);
+      if(ev.target.checked) hidden.delete(id); else hidden.add(id);
+      layout.hidden = Array.from(hidden);
+    });
+    renderDimColumnsMenu();
+  });
+  let dragId = '';
+  dimColumnsMenu.addEventListener('dragstart', ev => {
+    const item = ev.target.closest('.dim-col-item');
+    if(!item || item.classList.contains('locked')) return;
+    dragId = item.dataset.dimCol;
+    ev.dataTransfer.effectAllowed = 'move';
+    ev.dataTransfer.setData('text/plain', dragId);
+  });
+  dimColumnsMenu.addEventListener('dragover', ev => {
+    if(ev.target.closest('.dim-col-item')) ev.preventDefault();
+  });
+  dimColumnsMenu.addEventListener('drop', ev => {
+    ev.preventDefault();
+    const target = ev.target.closest('.dim-col-item');
+    const toId = target && target.dataset.dimCol;
+    if(!dragId || !toId || dragId === toId) return;
+    updateDimLayout(state.dim, layout => {
+      const from = layout.order.indexOf(dragId), to = layout.order.indexOf(toId);
+      if(from < 0 || to < 0) return;
+      layout.order.splice(from, 1); layout.order.splice(to, 0, dragId);
+    });
+    dragId = '';
+    renderDimColumnsMenu();
+  });
+  document.addEventListener('click', ev => {
+    if(!dimColumnsMenu.hidden && !ev.target.closest('#dimColumnsMenu, #dimColumnsBtn')){
+      dimColumnsMenu.hidden = true; dimColumnsBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+renderDimColumnsMenu();
 window.addEventListener('resize', () => { drawSeries(); drawSparks(); });
 
 /* 数字悬停：复用面板全局 [data-tip] 气泡（ensureHoverTip 的委托监听），
@@ -14232,6 +14738,217 @@ if (typeof SORT_DENY_TABLES !== 'undefined' && SORT_DENY_TABLES && SORT_DENY_TAB
   ['dimTable', 'foldPerf'].forEach(function(id){ SORT_DENY_TABLES.add(id); });
 }
 
+})();
+</script>
+
+<!-- ══════════ 色彩配置（调色台）══════════
+     入口在右上角主题菜单的「色彩配置」项（见 toggleThemeTuner）；面板默认
+     隐藏，打开后可拖动标题栏移动、点 × 关闭。颜色改动实时生效并写入
+     localStorage（刷新保留），「重置」恢复出厂值；「导出 JSON」把两套
+     调色结果复制出来，可落成正式变量。面板自身的配色走主题变量，所以
+     亮/暗主题下自动跟随。 -->
+<div id="tunerBox" role="dialog" aria-label="色彩配置">
+  <div id="tunerHead"><span>色彩配置</span><span id="tunerTheme"></span><button type="button" id="tunerClose" title="关闭" aria-label="关闭色彩配置">×</button></div>
+  <div id="tunerRows"></div>
+  <div id="tunerFoot"><button type="button" id="tunerReset">重置</button><button type="button" id="tunerExport">导出 JSON</button></div>
+</div>
+<style>
+#tunerBox{display:none;position:fixed;top:64px;right:14px;z-index:99999;width:258px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-md);
+  font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--fg)}
+#tunerBox.open{display:block}
+#tunerHead{display:flex;align-items:center;gap:6px;padding:7px 10px;background:var(--panel2);
+  border-bottom:1px solid var(--line);border-radius:10px 10px 0 0;cursor:move;user-select:none;font-weight:600}
+#tunerHead #tunerTheme{margin-left:auto;font-weight:400;font-size:11px;color:var(--dim)}
+#tunerClose{border:0;background:transparent;cursor:pointer;font-size:15px;line-height:1;padding:0 5px;color:var(--dim)}
+#tunerClose:hover{color:var(--fg)}
+#tunerRows{padding:6px 10px;max-height:56vh;overflow:auto}
+.tuner-row{display:flex;align-items:center;gap:7px;padding:2.5px 0}
+.tuner-row label{width:50px;flex-shrink:0;font-size:11px;color:var(--dim)}
+.tuner-row input[type=color]{width:28px;height:20px;border:1px solid var(--line);border-radius:4px;padding:0;cursor:pointer;background:none}
+.tuner-row code{font-size:10px;color:var(--dim);width:56px;font-family:ui-monospace,Consolas,monospace}
+.tuner-row .ratio{margin-left:auto;font-size:10px;font-weight:600;color:var(--dim);white-space:nowrap}
+.tuner-row .ratio.ok{color:var(--accent2)}
+.tuner-row .ratio.low{color:var(--warn)}
+#tunerFoot{display:flex;gap:8px;padding:8px 10px;border-top:1px solid var(--line)}
+#tunerFoot button{flex:1;padding:5px 0;font-size:11px;border:1px solid var(--line);border-radius:6px;background:var(--panel);cursor:pointer;color:var(--fg)}
+#tunerFoot button:hover{background:var(--panel2)}
+</style>
+<script>
+(function(){
+  var VARS = [
+    ['--accent', '强调色', 'signal'],
+    ['--accent2', '成功色', 'signal'],
+    ['--warn', '警告色', 'signal'],
+    ['--bad', '错误色', 'signal'],
+    ['--bg', '页面底', 'layer'],
+    ['--panel', '卡片', 'layer'],
+    ['--panel2', '内嵌块', 'layer'],
+    ['--fg', '主文字', 'text'],
+    ['--dim', '次文字', 'text'],
+    ['--line', '边框', 'edge']
+  ];
+  /* 看板页 scoped 变量里名字不同的三个（成功/警告/错误） */
+  var SCOPE = { '--accent2': '--green', '--warn': '--gold', '--bad': '--red' };
+  var KEY = 'wb-theme-tuner';
+  var switching = false, styleEl = null;
+  var box = document.getElementById('tunerBox');
+  var rowsEl = document.getElementById('tunerRows');
+  var themeLabel = document.getElementById('tunerTheme');
+
+  function theme(){ return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+  function readVar(n){
+    if (typeof getComputedStyle !== 'function') return '';
+    const style = getComputedStyle(document.documentElement);
+    return style && typeof style.getPropertyValue === 'function'
+      ? (style.getPropertyValue(n) || '').trim() : '';
+  }
+  /* 同步临时切主题读取原始值（同一帧内还原，不闪烁） */
+  function readThemeVals(t){
+    switching = true;
+    var cur = document.documentElement.getAttribute('data-theme') || 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    var out = {};
+    for (var i = 0; i < VARS.length; i++) out[VARS[i][0]] = readVar(VARS[i][0]) || '#000000';
+    document.documentElement.setAttribute('data-theme', cur);
+    switching = false;
+    return out;
+  }
+  function chan(v){ v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+  function lum(hex){
+    hex = String(hex).replace('#', '');
+    if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+    var r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+    return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b);
+  }
+  function ratio(a, b){
+    var la = lum(a), lb = lum(b);
+    if (la == null || lb == null) return null;
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+
+  var edits;
+  try { var saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch(e){ saved = null; }
+  if (saved && saved.light && saved.dark && saved.light['--accent'] && saved.dark['--accent']) {
+    edits = saved;
+  } else {
+    edits = { light: readThemeVals('light'), dark: readThemeVals('dark') };
+  }
+
+  function apply(){
+    if (!styleEl){ styleEl = document.createElement('style'); styleEl.id = 'tunerStyle'; document.head.appendChild(styleEl); }
+    function block(t){ return Object.keys(edits[t]).map(function(k){ return k + ':' + edits[t][k]; }).join(';'); }
+    function scoped(t){ return Object.keys(edits[t]).map(function(k){ return (SCOPE[k] || k) + ':' + edits[t][k]; }).join(';'); }
+    styleEl.textContent =
+      ':root{' + block('light') + '}\n' +
+      '[data-theme="dark"]{' + block('dark') + '}\n' +
+      '#pageAnalytics{' + scoped('light') + '}\n' +
+      '[data-theme="dark"] #pageAnalytics{' + scoped('dark') + '}';
+  }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(edits)); } catch(e){} }
+
+  function renderRows(){
+    var t = theme();
+    themeLabel.textContent = t === 'dark' ? '暗色' : '亮色';
+    rowsEl.innerHTML = '';
+    VARS.forEach(function(v){
+      var name = v[0], label = v[1];
+      var val = edits[t][name] || '#000000';
+      var row = document.createElement('div');
+      row.className = 'tuner-row';
+      var lab = document.createElement('label'); lab.textContent = label;
+      var inp = document.createElement('input'); inp.type = 'color'; inp.value = val;
+      var code = document.createElement('code'); code.textContent = val;
+      var rat = document.createElement('span'); rat.className = 'ratio';
+      row.appendChild(lab); row.appendChild(inp); row.appendChild(code); row.appendChild(rat);
+      inp.addEventListener('input', function(){
+        edits[t][name] = inp.value;
+        code.textContent = inp.value;
+        apply(); renderRatios(); save();
+      });
+      rowsEl.appendChild(row);
+    });
+    renderRatios();
+  }
+  function renderRatios(){
+    var t = edits[theme()];
+    var panel = t['--panel'];
+    var rows = rowsEl.children;
+    for (var i = 0; i < VARS.length; i++){
+      var name = VARS[i][0], kind = VARS[i][2];
+      if(!rows || !rows[i] || !rows[i].children) continue;
+      var el = rows[i].children[3];
+      if(!el) continue;
+      var r = ratio(t[name], panel);
+      if (kind === 'layer'){
+        if (name === '--panel') r = ratio(t['--panel'], t['--bg']);   /* 卡片行显示与页面底的层次 */
+        el.textContent = '层次 ' + (r ? r.toFixed(2) : '-'); el.className = 'ratio';
+      }
+      else if (kind === 'edge'){ el.textContent = '边框 ' + (r ? r.toFixed(2) : '-'); el.className = 'ratio'; }
+      else {
+        var ok = r != null && r >= 4.5;
+        el.textContent = (r ? r.toFixed(2) : '-') + (ok ? ' ✓' : ' ⚠');
+        el.className = 'ratio ' + (ok ? 'ok' : 'low');
+      }
+    }
+  }
+
+  /* 主题菜单入口：打开/关闭面板，并同步菜单项的选中态 */
+  window.toggleThemeTuner = function(evt){
+    if (evt){ evt.preventDefault(); evt.stopPropagation(); }
+    var menu = document.getElementById('themeDropdown');
+    if (menu) menu.classList.remove('open');
+    var btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    var open = box.classList.toggle('open');
+    var opt = document.getElementById('themeOptTuner');
+    if (opt) opt.classList.toggle('active', open);
+  };
+
+  /* 拖动 */
+  document.getElementById('tunerHead').addEventListener('mousedown', function(e){
+    if (e.target.id === 'tunerClose') return;
+    var r = box.getBoundingClientRect();
+    var ox = e.clientX - r.left, oy = e.clientY - r.top;
+    function mv(ev){
+      box.style.left = Math.max(0, ev.clientX - ox) + 'px';
+      box.style.top = Math.max(0, ev.clientY - oy) + 'px';
+      box.style.right = 'auto';
+    }
+    function up(){ document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', up);
+    e.preventDefault();
+  });
+  document.getElementById('tunerClose').addEventListener('click', function(){
+    box.classList.remove('open');
+    var opt = document.getElementById('themeOptTuner');
+    if (opt) opt.classList.remove('active');
+  });
+  document.getElementById('tunerReset').addEventListener('click', function(){
+    try { localStorage.removeItem(KEY); } catch(e){}
+    if (styleEl){ styleEl.remove(); styleEl = null; }
+    edits = { light: readThemeVals('light'), dark: readThemeVals('dark') };
+    apply(); renderRows();
+  });
+  document.getElementById('tunerExport').addEventListener('click', function(){
+    var txt = JSON.stringify(edits, null, 2);
+    function fallback(){ window.prompt('复制以下调色结果：', txt); }
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){ alert('已复制到剪贴板 ✓'); }, fallback);
+    } else { fallback(); }
+  });
+  /* 页面切主题时，调色台的值跟着切 */
+  if (typeof MutationObserver !== 'undefined') {
+    new MutationObserver(function(){
+      if (switching) return;
+      renderRows();
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+
+  apply();
+  renderRows();
 })();
 </script>
 </body>

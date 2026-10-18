@@ -281,6 +281,14 @@ jobs:
           if (-not (Test-Path $root)) { throw "包内没有 wb-proxy/ 目录" }
           $py = Join-Path $root 'python\python.exe'
           if (-not (Test-Path $py)) { throw "包内没有 python\python.exe" }
+          # 静默模式用 pythonw 起服务、用 console_tail.py 开日志窗口；两者
+          # 缺一个，双击启动脚本就会「一闪而过」（#416）。
+          if (-not (Test-Path (Join-Path $root 'python\pythonw.exe'))) {
+            throw "包内没有 python\pythonw.exe（静默启动依赖它）"
+          }
+          if (-not (Test-Path (Join-Path $root 'console_tail.py'))) {
+            throw "包内没有 console_tail.py（静默模式的日志窗口依赖它）"
+          }
 
           # The launcher has to look exactly where the runtime is.
           $bat = Get-Content (Join-Path $root 'start-wb-proxy.bat') -Raw

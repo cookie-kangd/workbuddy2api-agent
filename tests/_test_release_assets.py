@@ -244,7 +244,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_launchers_and_dashboard_are_listed(self):
         listed = tools.read_manifest()
-        for name in ("dashboard.html", "wb_proxy.py", "README.md", "LICENSE",
+        for name in ("dashboard.html", "console_tail.py", "wb_proxy.py", "README.md", "LICENSE",
                      "start-wb-proxy.bat", "start-wb-proxy.sh",
                      "start-wb-proxy.command", "start-wb-proxy-lan.sh"):
             self.assertIn(name, listed)
@@ -325,13 +325,13 @@ class RuntimeTrimTests(unittest.TestCase):
         for rel in ("Lib/multiprocessing", "Lib/tkinter/__init__.py", "Lib/idlelib/idle.py",
                     "Lib/site-packages/pip/__init__.py", "Lib/venv/__init__.py",
                     "Scripts/pip.exe", "include/Python.h", "libs/python312.lib",
-                    "tcl/tk8.6/init.tcl", "pythonw.exe", "python312.pdb",
+                    "tcl/tk8.6/init.tcl", "python312.pdb",
                     "DLLs/_tkinter.pyd", "DLLs/tcl86t.dll", "DLLs/tk86t.dll",
                     "DLLs/zlib1.dll", "DLLs/_testcapi.pyd", "Lib/__pycache__/os.cpython-312.pyc"):
             self.assertFalse(portable_runtime.keep(rel), "%s 应该被裁掉" % rel)
 
     def test_what_the_launchers_need_survives(self):
-        for rel in ("python.exe", "python3.dll", "python312.dll", "vcruntime140.dll",
+        for rel in ("python.exe", "pythonw.exe", "python3.dll", "python312.dll", "vcruntime140.dll",
                     "LICENSE.txt", "Lib/os.py", "Lib/ssl.py", "Lib/sqlite3/__init__.py",
                     "DLLs/_socket.pyd", "DLLs/_ssl.pyd", "DLLs/libssl-3-x64.dll",
                     "DLLs/_ctypes.pyd", "DLLs/libffi-8.dll"):

@@ -55,6 +55,48 @@ class ReserveCreditsTests(unittest.TestCase):
         self.assertFalse(unknown.reserve_blocked())
         self.assertTrue(unknown.ready())
 
+    def test_spend_between_refreshes_lowers_the_guard(self):
+        """#442: a 60-credit request must move the cached balance at once.
+
+        Before the fix the guard kept reading the number from the last
+        fetch, so a 130-credit account stayed "above 100" for hours while
+        every response deducted 60 upstream.
+        """
+        account = make_account("uid-spend", 130)
+        account.reserve_credits = 100
+        self.assertFalse(account.reserve_blocked())
+
+        account.consume_credit(60.31)
+        self.assertAlmostEqual(account.credits["remain"], 69.69)
+        self.assertAlmostEqual(account.credits["used"], 60.31)
+        self.assertEqual(account.credits["remain_percent"], "69.7%")
+        self.assertTrue(account.reserve_blocked())
+        self.assertFalse(account.ready())
+
+        # A single request bigger than the remainder floors at zero instead
+        # of producing a negative balance the panel would have to explain.
+        account.consume_credit(500)
+        self.assertEqual(account.credits["remain"], 0)
+        self.assertEqual(account.credits["remain_percent"], "0.0%")
+
+    def test_spend_ignores_unknown_balances_and_bad_amounts(self):
+        unknown = wb_accounts.Account({"uid": "uid-unknown", "accessToken": "t"})
+        unknown.consume_credit(10)
+        self.assertIsNone(unknown.credits)
+
+        account = make_account("uid-bad", 50)
+        for amount in ("abc", None, -1, 0):
+            account.consume_credit(amount)
+        self.assertEqual(account.credits["remain"], 50)
+
+    def test_record_usage_feeds_the_balance(self):
+        """Wiring pin: the deduction has to sit on the one usage choke point."""
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "wb_proxy.py")
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertIn('acc.consume_credit(fields["credit"])', source)
+
     def test_pool_skips_parked_account_and_publishes_state(self):
         with tempfile.TemporaryDirectory(prefix="reserve-pool-") as directory:
             wb_settings.set_reserve_credits(directory, 10)

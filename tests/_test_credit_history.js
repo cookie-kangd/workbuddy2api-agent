@@ -17,7 +17,10 @@ const elements = new Map();
 const element = id => {
   if (!elements.has(id)) {
     elements.set(id, {
-      id, innerHTML: '', textContent: '', value: '', className: '', style: {},
+      id, innerHTML: '', textContent: '', value: '', className: '',
+      // 主题初始化在脚本顶层把 CSS 变量写到 documentElement 的行内样式，
+      // 与其他套件的 mock 一样补上 CSSStyleDeclaration 的这两个方法。
+      style: {setProperty(){}, getPropertyValue(){ return ''; }},
       classList: {add(){}, remove(){}, toggle(){}, contains(){ return false; }},
       addEventListener(){}, querySelector(){ return null; }, querySelectorAll(){ return []; },
       appendChild(){}, focus(){}, setAttribute(){}, getAttribute(){ return ''; },

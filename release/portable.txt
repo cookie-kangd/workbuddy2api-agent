@@ -23,6 +23,7 @@
 LICENSE
 README.md
 dashboard.html
+console_tail.py
 
 start-wb-proxy.bat
 start-wb-proxy.command

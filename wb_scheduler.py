@@ -9,6 +9,7 @@
 """
 import threading
 import time
+import random
 import wb_tasks
 from wb_tasks import do_cat_travel
 
@@ -141,7 +142,10 @@ class Scheduler:
         travel_count = 0
         daily_chat_count = 0
 
-        for acc in list(self.pool.accounts):
+        for idx, acc in enumerate(list(self.pool.accounts)):
+            if idx > 0:
+                # 账号间随机错峰防并发风控（2~5秒浮动延时，issue #394）
+                time.sleep(random.uniform(2.0, 5.0))
             uid8 = acc.uid[:8] if acc.uid else "?"
             # 1. 检查 Token 剩余寿命 (小于 2 小时自动刷新保活)
             exp = acc.expires_at or 0
