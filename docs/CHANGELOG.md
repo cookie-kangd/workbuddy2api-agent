@@ -664,6 +664,35 @@
 
 - **GPT 系列流式 Token 与生成速度修复**：忽略中间帧全 0 的 usage 占位，并加入断流 Fallback 估算，修复 `gpt-5.6-luna` / `gpt-6-astra` 等模型输入输出为 0、生成速度缺失的问题。
 
+## v0.1.18 — 修复「重新应用」弹出空 PowerShell 窗口
+
+智能体配置页每次打开或点「重新应用」都会读本机进程表，判断 Codex / Claude
+Desktop 是否在运行、要不要重启。这些读写走 `powershell` 子进程，但调用时没有
+隐藏窗口，Windows 会为每个子进程分配一个控制台窗口再立刻销毁 —— 面板上看到
+的就是一连串一闪而过的空黑窗。功能一直是对的，纯粹是观感问题，但它让人以为
+出了什么事。
+
+### 修复
+
+- `wb_agents._run_powershell()` 与 `taskkill` 兜底共用同一个隐藏窗口的
+  `STARTUPINFO`（`SW_HIDE` + `STARTF_USESHOWWINDOW`），import 时构造一次，
+  非 Windows 主机返回 `None`，不影响 Linux / macOS。
+- 输出本来就由 `capture_output=True` 收集，所以这是纯显示层修复：进程表读取、
+  `CloseMainWindow` 优雅关闭、`taskkill` 强杀三条路径的行为完全不变。
+- 顺手把 `wb_pricing.py` 里三处 `_fetch_pricing.py` 注释更新为合并后的
+  `tools/_fetch_pricing.py`。
+
+### 说明
+
+这段代码不是上游 v1.7.13 同步带来的，而是本仓库自己的客户端重启功能
+（`1e7e903` / `0705d85`）引入；合并前后 `wb_agents.py` 一字未改。
+
+### 验证
+
+- 反向验证：临时撤回补丁后新断言立即失败，恢复后通过。
+- `_test_agents.py` 从 141 条断言增至 148 条；完整套件 163 passed。
+- 实测 `process_snapshot()` 返回 221 个进程、PowerShell stdout 正常。
+
 ## v0.1.17 — 同步上游 v1.7.11 – v1.7.13
 
 合并上游 `v1.7.13`（16 个提交），**保留 fork 的独立发行线**：版本仍从 `0.1.x` 起算，
