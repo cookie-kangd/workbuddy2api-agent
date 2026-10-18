@@ -664,6 +664,54 @@
 
 - **GPT 系列流式 Token 与生成速度修复**：忽略中间帧全 0 的 usage 占位，并加入断流 Fallback 估算，修复 `gpt-5.6-luna` / `gpt-6-astra` 等模型输入输出为 0、生成速度缺失的问题。
 
+## v0.1.17 — 同步上游 v1.7.11 – v1.7.13
+
+合并上游 `v1.7.13`（16 个提交），**保留 fork 的独立发行线**：版本仍从 `0.1.x` 起算，
+面板更新检查器保持删除状态，Release 仍只发 Windows 便携包，「最近请求」表同时保留
+fork 的「上游」列与上游新增的「API Key」列。
+
+### 新增（来自上游）
+
+- **请求结束立即扣减余额，低积分护栏不再失效**（#442）：新增 `Account.consume_credit()`，
+  每条完成的请求按上游回包里的真实 `credit` 立刻扣减内存余额（加锁、下限 0），后台
+  刷新回来再校正。修掉「48 个号的池子刷完一轮要 24 小时，`reserve_blocked()` 全程
+  没拦住」的问题。
+- **按账号禁用个别模型**（#405 / #402）：账号持久化字段 `disabledModels`，面板账号行
+  「+ 禁用模型」弹窗（默认全选、取消勾选即禁用），也可 `POST /accounts/set`。只做精确
+  匹配、只影响该账号的该模型，其他账号与其他模型不受影响。与自动节流互不干扰。
+- **日志与看板显示发起方 API Key**（#401 / #397）：`chat:` / `chat done:` /
+  `messages:` / `responses:` 四条日志行与「最近请求」表格新增 API Key 列；`key_label()`
+  带 5 秒 TTL 缓存，不引入每请求一次 `settings.json` 读取。
+- **软限流阶梯时间窗与秒级剩余时间**（#408）：`soft_streak` / `unscoped_streak` 也按
+  `WB_FAIL_WINDOW`（默认 600 秒）判定「连续」，不再出现「昨天被限 3 次、今天第一个
+  429 就从 2400s 起步」；冷却剩余时间改为「剩余 42s / 1m30s」；通用失败分支补日志。
+- **UA 与版本号单一来源**（#403）：`DESKTOP_VERSION_INTL = "5.8.4"` 等常量全部从
+  `wb_identity` 取，清掉残留的硬编码 5.5.2。
+- **调度账号间随机错峰**（#394）：每日打卡/巡检在账号之间加 2~5 秒随机延时，防整点
+  请求集中引发出口 IP 频率风控。
+- **`console_tail.py` 独立日志查看器 + `pythonw` 静默启动**（#416 / #427）：双击
+  `start-wb-proxy*.bat` 后服务在后台静默运行，独立日志窗口单独打开；没有 `pythonw`
+  时回退原来的可见窗口。面板眼睛按钮改为 `window.open('/dashboard?tab=logs')`。
+- **关闭服务用 `/health` 复核**（#426）：被容器/守护进程重新拉起时如实提示「停止请求
+  已发送，但服务仍在运行」，按钮不会被永久禁用。
+- **OpenWrt 依赖补全**（#419）、`.gitignore` 增加隔离测试目录、深色模式对比度提到
+  WCAG AA、模型清单固定布局、系统设置页卡片嵌套错位修复、`tools/` 归档调试脚本。
+
+### 保留（不同步上游）
+
+- 版本号仍为 `0.1.x`，不跟随上游 `1.7.x`。
+- 面板更新检查模块（`wb_updates.py`）保持删除，`docker-publish` / `release-checksums` /
+  `revert-guard` 等工作流不回归。
+- OpenWrt Makefile 的 URL 与 `PKG_VERSION` 保持本仓库口径，但采纳上游的 `DEPENDS` 补全。
+- 「最近请求」表 fork 的「上游」列保留，与上游新增的「API Key」列并存。
+
+### 验证
+
+- 完整测试套件 **163 passed, 0 failed, 0 skipped**（121 Python + 42 JS）。
+- GitHub Actions run 52（`73cd990`）`windows-latest / python 3.12` success。
+- 运行时冒烟：`/health`、`/v1/models`（17 个模型）、`/agents/thirdparty`、`/agents`、
+  `/settings`、`/console/state`、`/console/toggle`、`/shutdown`（端口确实释放）全部正常。
+
 ## v0.1.16 — 第三方上游响应记录兼容修复
 
 部分第三方模型（例如 AMD 的 `MiniCPM-V-4.7-1B`）请求本身成功返回，但网关在
