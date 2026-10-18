@@ -631,12 +631,37 @@ _PS_PROCESS_SNAPSHOT = (
 )
 
 
+def _hidden_startupinfo():
+    """A STARTUPINFO that keeps the child from flashing a console window.
+
+    Without this, every `powershell` round-trip allocates a console, shows it
+    for a moment and destroys it - the panel user sees a black/blue window
+    blink once per call, with nothing in it. The process table alone needs
+    several calls, so one re-apply used to throw a burst of empty windows.
+    `-NoProfile -NonInteractive` already keeps the child silent; this stops
+    the window itself. Guarded because these flags are Windows-only.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        return si
+    except Exception:
+        return None
+
+
+_PS_STARTUPINFO = _hidden_startupinfo()
+
+
 def _run_powershell(script, timeout=PROCESS_QUERY_TIMEOUT):
     """Run a PowerShell snippet, returning stdout as text."""
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     proc = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-        capture_output=True, timeout=timeout)
+        capture_output=True, timeout=timeout,
+        startupinfo=_PS_STARTUPINFO)
     if proc.returncode != 0:
         raise AgentConfigError(
             "powershell failed: %s"
@@ -813,7 +838,8 @@ def _terminate(procs, pids):
             for pid in alive_roots or sorted(alive):
                 try:
                     subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
-                                   capture_output=True, timeout=30)
+                                   capture_output=True, timeout=30,
+                                   startupinfo=_PS_STARTUPINFO)
                 except Exception:
                     pass
     else:

@@ -1028,5 +1028,42 @@ try:
 finally:
     P.ACCOUNTS_DIR = _orig_accounts32
 
+# ---------------------------------------------------------------------------
+# 面板「重新应用」时不能弹出空 PowerShell 窗口
+#
+# 智能体配置页每打开一次、每点一次重新应用，都要读本机进程表来判断客户端
+# 是否在跑、要不要重启。这些 round-trip 历史上直接 subprocess.run(["powershell",
+# ...]) 而不带 STARTUPINFO，Windows 会为每个子进程分配一个控制台窗口并立刻
+# 销毁 —— 用户看到的就是一连串一闪而过的黑窗，里面什么都没有。
+#
+# 这不影响功能（输出已 capture），纯粹是观感与「这一堆窗口在干什么」的困惑，
+# 所以这里钉住：_run_powershell 与 taskkill 都必须带隐藏窗口的 startupinfo。
+# ---------------------------------------------------------------------------
+if os.name == "nt":
+    import inspect as _inspect
+    import wb_agents as _A
+
+    check("_run_powershell 带隐藏窗口的 startupinfo",
+          "startupinfo=_PS_STARTUPINFO" in _inspect.getsource(_A._run_powershell),
+          "缺 startupinfo，重新应用会弹空 PowerShell 窗口")
+
+    _si = _A._PS_STARTUPINFO
+    check("_PS_STARTUPINFO 已构造", _si is not None, "为 None，说明构造失败或被禁用")
+    if _si is not None:
+        check("wShowWindow 是 SW_HIDE(0)", _si.wShowWindow == 0, _si.wShowWindow)
+        check("dwFlags 含 STARTF_USESHOWWINDOW",
+              bool(_si.dwFlags & 0x1), hex(_si.dwFlags))
+
+    _src_terminate = _inspect.getsource(_A._terminate)
+    check("taskkill 也带隐藏窗口的 startupinfo",
+          "startupinfo=_PS_STARTUPINFO" in _src_terminate,
+          "taskkill 会弹第二个窗口")
+
+    # 功能不能因为隐藏窗口而退化：仍然拿得到进程表与 stdout。
+    _out = _A._run_powershell("Write-Output hidden-ok").strip()
+    check("隐藏窗口后 PowerShell 仍返回输出", _out == "hidden-ok", _out)
+    check("隐藏窗口后进程表仍可读", isinstance(_A.process_snapshot(), list),
+          "process_snapshot 不再是 list")
+
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
