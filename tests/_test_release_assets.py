@@ -264,6 +264,17 @@ class ManifestTests(unittest.TestCase):
                 if name.endswith((".bat", ".sh", ".command")):
                     self.assertIn(name, listed, "便携包清单缺少 %s" % name)
 
+    def test_close_helper_is_listed(self):
+        """一键关闭服务必须随包发出去。
+
+        静默启动后服务是 pythonw，没有任何窗口可关，唯一的口子只剩面板电源
+        按钮。close-wb-proxy.bat + close_wb_proxy.py 走的是同一条
+        /shutdown 路径，少了任何一个文件这个能力就不成立。
+        """
+        listed = tools.read_manifest()
+        for name in ("close-wb-proxy.bat", "close_wb_proxy.py"):
+            self.assertIn(name, listed, "便携包清单缺少 %s" % name)
+
     def test_runtime_data_files_are_listed(self):
         # wb_pricing._candidate_file() prefers pricing/pricing.json over the
         # copy inlined in the module, so a package without it silently ships

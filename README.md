@@ -1,7 +1,7 @@
 # WorkBuddy2API-Agent — 国际版、国内版多账号反代网关
 
 <p align="center">
-  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.18-2496ED?style=flat-square" alt="Version 0.1.18"></a>
+  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.19-2496ED?style=flat-square" alt="Version 0.1.19"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -50,7 +50,25 @@
 
 双击 **`start-wb-proxy-lan.bat`**（或 `./start-wb-proxy-lan.sh`）以 `--lan` 启动，监听所有网卡并强制要求 API Key（首次启动自动生成、写入 `accounts/settings.json` 并打印在日志里）。手机 / 其他电脑把 Base URL 指向 `http://<本机局域网IP>:8788/v1` 即可。
 
-### 4. 升级到新版本
+### 4. 关闭服务
+
+静默启动后服务是 `pythonw` 进程，**没有任何窗口可以关**——关掉日志查看器窗口不影响服务。
+要停掉它，除了去面板顶栏点那个红色电源按钮，也可以直接用包里的关闭脚本：
+
+```bat
+close-wb-proxy.bat
+```
+
+它做的和面板按钮是同一件事：面板登录 → `POST /shutdown` → 轮询 `/health`
+确认端口真的释放了。不是按 PID 杀进程，所以服务有机会把最后一条用量记录写盘。
+
+- 非默认端口：`close-wb-proxy.bat 9000`
+- 面板密码不是默认 `admin` 时，先 `set WB_PANEL_PASSWORD=<密码>`，
+  或直接用 `python close_wb_proxy.py --password <密码>`
+- 服务没在运行时它会直接说 nothing to stop，不会误伤同端口上的其他程序
+- 被容器或服务管理器自动拉起时，它会如实提示「已发送但仍在运行」，不谎报成功
+
+### 5. 升级到新版本
 
 面板**没有**更新板块，升级用随包脚本（脚本会保留 `accounts\`、`usage\` 与自身）：
 
@@ -61,14 +79,14 @@ powershell -ExecutionPolicy Bypass -File .\update-wb-proxy.ps1
 
 常用参数：`-DryRun` 只看版本不改动、`-Diagnose` 只做网络体检、`-ZipPath <zip>` 用本地包离线更新、`-Backup` 更新前打包备份账号与用量。脚本会从发布页读取**真实附件名**，最新版暂时没有便携 zip 时自动回退到上一个有 zip 的版本。
 
-### 5. 测试
+### 6. 测试
 
 ```bash
 python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 163 个套件：121 个 Python + 42 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 164 个套件：122 个 Python + 42 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Windows + Python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**。
 

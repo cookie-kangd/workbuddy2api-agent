@@ -664,6 +664,40 @@
 
 - **GPT 系列流式 Token 与生成速度修复**：忽略中间帧全 0 的 usage 占位，并加入断流 Fallback 估算，修复 `gpt-5.6-luna` / `gpt-6-astra` 等模型输入输出为 0、生成速度缺失的问题。
 
+## v0.1.19 — 新增一键关闭服务脚本
+
+静默启动之后服务是 `pythonw` 进程，没有任何控制台窗口可关，关闭服务只能去面板
+顶栏点红色电源按钮。新增 `close-wb-proxy.bat` / `close_wb_proxy.py`，做的就是面板
+那个按钮做的同一件事，省掉开浏览器那一步。
+
+### 新增
+
+- **`close-wb-proxy.bat`（双击即用）+ `close_wb_proxy.py`**：面板登录拿到会话 token，
+  带 `X-Panel-Token` 调 `POST /shutdown`，然后轮询 `/health` 直到端口真的不再应答。
+  **不按 PID 杀进程**，服务因此能走完优雅退出、把最后一条用量记录写盘。
+- **非默认端口**：`close-wb-proxy.bat 9000`。
+- **面板密码非默认时**：`set WB_PANEL_PASSWORD=<密码>` 或 `--password <密码>`，
+  与 `console_tail.py` 的取值顺序一致；密码不会落进任何文件。
+- **诚实的退出判定**：只有 `/health` 不再应答才报告成功；被容器或服务管理器自动
+  拉起时如实提示「已发送但仍在运行」，和面板按钮口径一致。
+- 服务没在运行时直接说 nothing to stop 并返回 0，不弹密码提示、不误伤同端口上
+  的其他程序。
+- 两个文件已加入 `release/portable.txt`，随便携包分发。
+
+### 修复
+
+- `wb_pricing.py` 里三处 `_fetch_pricing.py` 注释更新为合并后的 `tools/_fetch_pricing.py`。
+
+### 验证
+
+- 新增 `tests/_test_close_helper.py`：8 项断言覆盖端点顺序与 token、密码优先级、
+  没在运行、密码错误不误杀、守护进程拉起时如实报告、不走代理、打包契约、
+  .bat 纯 ASCII + CRLF。
+- 实测：`pythonw` 静默实例启动后执行脚本，端口释放且 PID 彻底退出；密码错误时
+  服务照跑；端口被普通 socket 占用时不动它。
+- `tests/_test_release_assets.py` 增至 63 项（新增清单契约断言）。
+- 完整套件 **164 passed**（122 Python + 42 JS）。
+
 ## v0.1.18 — 修复「重新应用」弹出空 PowerShell 窗口
 
 智能体配置页每次打开或点「重新应用」都会读本机进程表，判断 Codex / Claude

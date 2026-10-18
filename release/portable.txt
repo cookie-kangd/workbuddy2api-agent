@@ -24,6 +24,10 @@ LICENSE
 README.md
 dashboard.html
 console_tail.py
+# 一键关闭服务：与面板「关闭服务」按钮同一条 /shutdown 路径，
+# 省得静默启动后还得去浏览器点一下（pythonw 没有窗口可关）。
+close-wb-proxy.bat
+close_wb_proxy.py
 
 start-wb-proxy.bat
 start-wb-proxy.command
