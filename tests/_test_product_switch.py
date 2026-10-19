@@ -135,5 +135,67 @@ class ProductSwitchTests(unittest.TestCase):
             self.assertEqual(payload["product"], product)
 
 
+class SwitchAccount(object):
+    """Just enough Account for _try_switch_product."""
+
+    def __init__(self, product):
+        self.uid = "u-auto-switch"
+        self.product = product
+
+    def set_product(self, target):
+        if target == self.product:
+            return False
+        self.product = target
+        return True
+
+
+class AutoSwitchTargetTests(unittest.TestCase):
+    """The panel-configured allowed identities bound the 429 auto-switch."""
+
+    def setUp(self):
+        self.dir = os.path.join(_TMP.name, "auto-switch-accounts")
+        os.makedirs(self.dir, exist_ok=True)
+        try:
+            os.remove(os.path.join(self.dir, "settings.json"))
+        except OSError:
+            pass
+        self._old_dir = proxy.ACCOUNTS_DIR
+        proxy.ACCOUNTS_DIR = self.dir
+        proxy._SWITCH_LOG.clear()
+
+    def tearDown(self):
+        proxy.ACCOUNTS_DIR = self._old_dir
+        proxy._SWITCH_LOG.clear()
+
+    def test_default_allows_all_three_in_order(self):
+        account = SwitchAccount("workbuddy")
+        self.assertTrue(proxy._try_switch_product(account, "m"))
+        self.assertEqual(account.product, "vscode")
+        self.assertTrue(proxy._try_switch_product(account, "m"))
+        self.assertEqual(account.product, "cli")
+        self.assertTrue(proxy._try_switch_product(account, "m"))
+        self.assertEqual(account.product, "workbuddy")
+
+    def test_only_configured_targets_are_used(self):
+        proxy.wb_settings.set_auto_switch_products(self.dir, ["vscode"])
+        account = SwitchAccount("workbuddy")
+        self.assertTrue(proxy._try_switch_product(account, "m"))
+        self.assertEqual(account.product, "vscode")
+        self.assertFalse(proxy._try_switch_product(account, "m"),
+                         "vscode is the only allowed target and it is current")
+
+    def test_disallowed_targets_are_skipped(self):
+        proxy.wb_settings.set_auto_switch_products(self.dir, ["cli"])
+        account = SwitchAccount("workbuddy")
+        self.assertTrue(proxy._try_switch_product(account, "m"))
+        self.assertEqual(account.product, "cli")
+
+    def test_an_empty_allow_list_disables_the_switch(self):
+        proxy.wb_settings.set_auto_switch_products(self.dir, [])
+        account = SwitchAccount("workbuddy")
+        self.assertFalse(proxy._try_switch_product(account, "m"))
+        self.assertEqual(account.product, "workbuddy")
+
+
 if __name__ == "__main__":
     unittest.main()

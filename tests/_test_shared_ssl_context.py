@@ -21,11 +21,26 @@ import os
 import ssl
 import sys
 
+CERT_PEM = """-----BEGIN CERTIFICATE-----
+MIIBVTCB/KADAgECAhRjBYVVqXLLq9XPGJLkh4vjllA88jAKBggqhkjOPQQDAjAX
+MRUwEwYDVQQDDAx3Yi1wb29sLXRlc3QwIBcNMjYwMTAxMDAwMDAwWhgPMjEyNTEy
+MDgwMDAwMDBaMBcxFTATBgNVBAMMDHdiLXBvb2wtdGVzdDBZMBMGByqGSM49AgEG
+CCqGSM49AwEHA0IABO9/UQG2Y7AHaVYraezrSQRqTF7CNRvyB92HN0Z1UcZihDrJ
+gdfNQ7roarcMLQp+iF/4Mptz9aK6JVpxHrhBDCajJDAiMCAGA1UdEQQZMBeCCWxv
+Y2FsaG9zdIcEfwAAAYcEZGznVDAKBggqhkjOPQQDAgNIADBFAiEA3pmrNdsS5rsF
+g61sIWJjuMTnhITTEpfEirLsDswzTJsCIHtKSt51ZnqleBoee2sC4uAZmSNogyzW
+un5auKxKku42
+-----END CERTIFICATE-----
+"""
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from _isolated_dirs import isolated_data_dirs  # noqa: E402  (its own data root)
 # Its own directories, removed when this process exits.
 _TMP = isolated_data_dirs("wb-shared-ssl-")
 
+# A host-level WB_CA_BUNDLE would otherwise change the "system CA" baseline
+# this suite compares against.
+os.environ.pop("WB_CA_BUNDLE", None)
 import wb_upstream_pool as U  # noqa: E402
 
 PASS = 0
@@ -152,6 +167,39 @@ check("and that rebuilt context is cached again",
       U.shared_ssl_context() is restored)
 check("the relaxed context is gone from the cache",
       U._SSL_CONTEXT is not custom)
+
+print("-- WB_CA_BUNDLE is trusted on top of the system roots --")
+
+ca_file = os.path.join(_TMP.name, "private-ca.pem")
+with open(ca_file, "w", encoding="ascii", newline="\n") as fh:
+    fh.write(CERT_PEM)
+
+try:
+    os.environ["WB_CA_BUNDLE"] = os.path.join(_TMP.name, "does-not-exist.pem")
+    try:
+        U.shared_ssl_context()
+    except RuntimeError as exc:
+        check("a missing WB_CA_BUNDLE is a clear error",
+              "WB_CA_BUNDLE" in str(exc) and "does-not-exist" in str(exc), exc)
+    else:
+        check("a missing WB_CA_BUNDLE is a clear error", False)
+
+    os.environ["WB_CA_BUNDLE"] = ca_file
+    bundled = U.shared_ssl_context()
+    check("setting WB_CA_BUNDLE invalidates the cached context",
+          bundled is not restored, "same object as before the bundle")
+    base_certs = ssl.create_default_context().cert_store_stats()["x509"]
+    bundled_certs = bundled.cert_store_stats()["x509"]
+    check("the private certificate is loaded",
+          bundled_certs == base_certs + 1, (base_certs, bundled_certs))
+    check("verification is still required with a bundle",
+          bundled.check_hostname is True
+          and bundled.verify_mode == ssl.CERT_REQUIRED,
+          "check_hostname=%r verify_mode=%r" % (bundled.check_hostname,
+                                                bundled.verify_mode))
+finally:
+    os.environ.pop("WB_CA_BUNDLE", None)
+    U.shared_ssl_context()  # restore the system-only cache
 
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

@@ -65,6 +65,8 @@ class Request(object):
     _authorized = proxy.Handler._authorized
     _supplied_key = proxy.Handler._supplied_key
     _request_realm = proxy.Handler._request_realm
+    _strip_pinned_prefix_only = proxy.Handler._strip_pinned_prefix_only
+    _apply_pinned_route = proxy.Handler._apply_pinned_route
     _error = proxy.Handler._error
     _get_pricing = proxy.Handler._get_pricing
     _get_v1_models = proxy.Handler._get_v1_models

@@ -102,13 +102,19 @@ class DeviceTokenTests(unittest.TestCase):
             self.assertNotIn("X-Device-Token", account.headers("chat"))
             self.assertNotIn("X-Device-Token", account.headers("billing"))
 
-    def test_literal_token_is_injected_on_chat_and_billing(self):
+    def test_literal_token_is_billing_only_for_intl_chat(self):
         with tempfile.TemporaryDirectory() as directory:
             wb_settings.set_upstream_config(directory, {"device_token": "tok-literal"})
-            account = self.make_account(directory)
+            account = self.make_account(directory)          # realm = intl
             self.assertEqual(wb_accounts.resolve_device_token(directory), "tok-literal")
-            self.assertEqual(account.headers("chat")["X-Device-Token"], "tok-literal")
+            # 国际版官方客户端没有 X-Device-Token（抓包 + 二进制构造器都不含）：
+            # 网关不伪造、也不把全局单值发给国际版账号（那是跨账号关联键）。
+            self.assertNotIn("X-Device-Token", account.headers("chat"))
             self.assertEqual(account.headers("billing")["X-Device-Token"], "tok-literal")
+            cn = wb_accounts.Account({"uid": "uid-cn", "accessToken": "t",
+                                      "realm": "cn"},
+                                     os.path.join(directory, "uid-cn.json"))
+            self.assertEqual(cn.headers("chat")["X-Device-Token"], "tok-literal")
 
     def test_file_token_is_read_trimmed_and_cached(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -167,6 +167,16 @@ check("result order is preserved",
 check("the intruder is kept, only moved",
       any(m.get("content") == "<image_resize_notice>" for m in fixed))
 
+before_first = [{"role": "user", "content": "go"},
+                assistant_with_calls("c0"),
+                {"role": "developer", "content": "<notice>"},
+                tool_result("c0")]
+fixed_bf, changed_bf = P.repack_tool_result_blocks(copy.deepcopy(before_first))
+check("an intruder before the first result is moved", changed_bf)
+check("the result becomes adjacent in that case too",
+      [m.get("role") for m in fixed_bf[1:4]] == ["assistant", "tool", "developer"],
+      [m.get("role") for m in fixed_bf[1:4]])
+
 adjacent = [{"role": "user", "content": "go"},
             assistant_with_calls("c0"),
             tool_result("c0")]
@@ -386,6 +396,23 @@ check("it can be switched on with WB_PROMPT_CACHE_KEY=1",
 _os.environ["WB_PROMPT_CACHE_KEY"] = "0"
 check("and switched back off", P.prompt_cache_key_enabled() is False)
 del _os.environ["WB_PROMPT_CACHE_KEY"]
+
+print()
+print("[6] chat body serialization is compact (official JSON.stringify shape)")
+
+raw = P.encode_upstream_body({"model": "m", "messages": [
+    {"role": "user", "content": "hi"}]})
+check("no whitespace between JSON tokens",
+      raw == b'{"model":"m","messages":[{"role":"user","content":"hi"}]}', raw)
+check("round-trips to the same object",
+      json.loads(raw.decode("utf-8"))["messages"][0]["content"] == "hi")
+check("non-ASCII stays UTF-8 instead of \\u escapes",
+      P.encode_upstream_body({"content": "\u4e2d\u6587"})
+      == b'{"content":"\xe4\xb8\xad\xe6\x96\x87"}',
+      P.encode_upstream_body({"content": "\u4e2d\u6587"}))
+check("compact output is shorter than the old default separators",
+      len(raw) < len(json.dumps({"model": "m", "messages": [
+          {"role": "user", "content": "hi"}]}, ensure_ascii=False).encode("utf-8")))
 
 print()
 print("PASS=%d FAIL=%d" % (PASS, FAIL))

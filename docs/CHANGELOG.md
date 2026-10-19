@@ -155,7 +155,7 @@
 - **修复 macOS 启动脚本换行符与执行权限**（#329）：Release 便携包打包阶段对 `*.sh` 与 `*.command` 强制归一化为 LF 换行并赋予 `0o755` 可执行权限，彻底解决 macOS 双击脚本报 `bad interpreter: /bin/bash^M` 的问题；仓库根目录新增 `.gitattributes` 统一跨平台换行规范。
 - **日志与用量套件稳定性增强**（#317、#320、#321）：出口瞬时 hiccup 日志补充底层具体断连原因；修复用量与限高测试用例在部分环境下的跨用例残留与 CI 偶发抖动。
 
-# 版本更新记录 (Changelog)
+ (Changelog)
 
 已发布版本的完整记录；开发中的改动先记在 [README](../README.md) 的「版本更新记录」段，发版时整理成新版本号移到这里。
 
@@ -663,6 +663,65 @@
 ## v1.4.5
 
 - **GPT 系列流式 Token 与生成速度修复**：忽略中间帧全 0 的 usage 占位，并加入断流 Fallback 估算，修复 `gpt-5.6-luna` / `gpt-6-astra` 等模型输入输出为 0、生成速度缺失的问题。
+
+## v0.1.20 — 同步上游 v1.7.14 – v1.7.16
+
+合并上游 `v1.7.16`（44 个提交，54 个文件）。这一段上游集中在**风控加固、协议兼容与身份对齐**：
+国际版风控 403（code 11140）不再换号连坐、限制期限持久化、整池连坐暂停，以及证书校验失败不再
+重试、401 先刷新 token 再换号。Fork 的独立发行线保持：版本仍从 `0.1.x` 起算，面板更新检查与
+阿里云 systemd 部署链路不回归，Release 仍只发 Windows 便携包。
+
+### 同步过来（错误修复 / 安全加固 / 兼容性）
+
+- **风控 403（11140）不再跨号连坐**（#422、#425）：旧实现在 11140 上冷却该号后立刻换下一个号继续
+  同一请求，一个请求最多遍历整个池子——社区实测 7 个号在一次任务里全被封。现在第一个账号被限制
+  就停手，把原因交给客户端，下一次请求自然落到别的账号。需要旧行为时设
+  `WB_RESTRICTED_403_ROTATE_MAX`（默认 0）。
+- **限制期限持久化 + 整池连坐暂停**：账号档案新增 `restrictedUntil`（2 小时），重启 / 换身份 /
+  刷新凭证 / 一键测试都不再把它放回池子；同一区域在 `WB_RESTRICTION_WAVE_WINDOW`（默认 900 秒）内
+  被限制 `WB_RESTRICTION_WAVE_MIN`（默认 2）个账号，就暂停该区域派发
+  `WB_RESTRICTION_HOLD_SECONDS`（默认 1800 秒），期间一个上游请求都不发。
+- **证书校验失败不再重试、401 先刷新 token 再换号**（#441、#439）：中间层返回 HTML 401 不再锁死账号
+  （#440），积分明细 401 有友好重登引导。
+- **国际版 chat 不再发送 `X-Device-Token`**：国内版客户端带真实设备 token，国际版没有这个头；
+  网关此前用全局单值伪造，既伪造头又把多个账号串到同一台设备上。billing 路径与国内版维持原行为。
+- **`X-Conversation-ID` 按会话稳定**：按「账号 + 会话键」派生，不再每个请求新生成——否则一次多轮
+  对话等于被拆成上千个一次性会话。
+- **工具函数 JSON Schema 自动规整**：递归深度规整，修上游 400 拦截（code 11129 / 11101）；
+  `tool_result` 图片保留结构化 `image_url`，避免 base64 按文本计费（#452）。
+- **CLI / VSCode 身份对齐官方**：CLI 2.168.2（`@tencent-ai/codebuddy-code` 解包核对）、VSCode 扩展
+  4.12.39997873，补 x-stainless-* 指纹头族与 B3 链路头。
+- **传输层头名保真 + 按账号分池**：禁止跨账号共用连接。
+- **时序桶网格对齐本地午夜 / 整点**：修热力图跨日合并（#447）。
+- **空数据时 Token 时序图悬停 TypeError**、英文界面词级杂交串、区间切换丢弃过期响应、轮询窗口
+  量化以命中 304。
+- **按账号定址路由 `/u/<ref>/v1/...`**（#455）：`<ref>` 支持完整 uid / 前 8 位 / 昵称，锁定账号、
+  不参与亲和 / 轮换 / 自动换号；配套只读积分汇总 `GET /v1/balance-summary`。
+- **`WB_CN_CHAT_UPSTREAM`**：海外出口把国内版对话 / 刷新 / 任务切到 `www.workbuddy.cn`（同一套
+  接口且海外可达）。不设则行为与此前完全一致，只换「往哪发」不换身份与计费。
+- 新增模块：`wb_quota_scan.py`（模型额度定时主动查询）、`wb_window_probe.py`（窗口重置探针）；
+  后台排程时段支持 `settings.json` 配置，默认值与旧硬编码一致。
+
+### Fork 保留（不同步上游）
+
+- 面板更新检查模块（`wb_updates.py`）、更新安装链路（`wb_update_request.py`、`ops/aliyun/*`）、
+  `/updates/*` 路由与设置项、面板「更新」板块全部不回归；升级继续用随包脚本。
+- Release 仍只发 Windows 便携包；`docker-publish` / `release-checksums` / `revert-guard` 不回归。
+- OpenWrt Makefile 的 URL 与 `PKG_VERSION` 保持本仓库口径。
+- 「最近请求」表同时保留 fork 的「上游」列与上游的「API Key」列。
+- `close-wb-proxy.bat` / `close_wb_proxy.py` 未受本次同步影响，已专项回归。
+
+### 验证
+
+- 合并后修复三处因删冲突被误删的实现：`wb_identity.CN_CHAT_BASE`（国内版网关启动即崩）、
+  `wb_settings` 的 `window_probe` / `quota_scan_models` / `schedule_hours` / `auto_switch_products`
+  四组设置、`dashboard.html` 的 quota scan 六个 JS 函数（缺 `renderQuotaScanState` 会让整个设置页
+  加载失败）。
+- 跨模块引用用 AST 双向扫描，11 个模块零缺失；`onclick` 127 个调用对 555 个定义零缺失，无重复定义。
+- 更新检查相关引用全仓清零，fork 保留项全部在位。
+- 完整套件 **175 passed, 0 failed**（131 Python + 44 JS）。
+- 运行时：网关启动正常、10 个端点全 200、面板 HTML 722KB 正常下发、`close-wb-proxy.bat`
+  端到端关闭成功且端口释放。
 
 ## v0.1.19 — 新增一键关闭服务脚本
 
@@ -1238,3 +1297,89 @@ v1.7.5 到 v1.7.10 的改动整体并入，同时**保留本仓库此前的精�
 
 - 根目录 `README.md` 重写为面向本仓库的说明，突出低内存占用、Windows 便携包
   与 Codex 一键接入。
+
+## v1.7.16
+
+国内版上游可改址、面板稳定性与英文界面修复：新增 WB_CN_CHAT_UPSTREAM，海外出口可把国内版对话 / 刷新 / 任务一起切到 www.workbuddy.cn（#465）；修复空数据时 Token 时序悬停崩溃、英文界面词级拼接、区间切换串号与轮询 304 不命中（#470）。套件 172 个（127 Python + 45 JS）。
+
+- **国内版对话上游可通过 `WB_CN_CHAT_UPSTREAM` 改址**：`copilot.tencent.com` 从海外出口（代理软件全局模式等）连接时 TLS 握手被复位（`SSL: UNEXPECTED_EOF_WHILE_READING` / `WinError 10054`），国内版对话、刷新 token、模型目录、签到与成长任务全部失败，账号还会因此被熔断。设 `WB_CN_CHAT_UPSTREAM=https://www.workbuddy.cn` 后，桌面端 / CLI 身分的对话端点、`REALM_CONFIGS["cn"]["chat_upstream"]` 与成长任务的 `CHAT_BASE` 一起改走该地址；`X-Domain` 仍用账号自己的 domain。不设时行为与此前完全一致。
+  `WB_CN_CHAT_UPSTREAM` overrides the China-realm chat upstream. From an overseas exit (e.g. a proxy in global mode) the TLS handshake to `copilot.tencent.com` is reset, so China-realm chat, token refresh, the model catalogue, check-in and growth tasks all fail and accounts get tripped by the breaker. With `WB_CN_CHAT_UPSTREAM=https://www.workbuddy.cn` the desktop / CLI chat endpoints, `REALM_CONFIGS["cn"]["chat_upstream"]` and the growth-task `CHAT_BASE` all move to that host; `X-Domain` still comes from the account's own domain. Unset, nothing changes.
+- **面板三处缺陷与 README 结构修正**（#470）：空数据时 Token 时序图悬停不再抛 TypeError；补齐 12 条英文短语词条，消除「Taskand福利」「callsRequests」这类杂交串；区间切换加代次保护，迟到的旧响应会被丢弃，轮询窗口上界量化到 15 秒桶，连续轮询也能命中 304；README 的 §二 小节号与断开的端点表一并修正。
+
+## v1.7.15
+
+账号面板的模型冷却 / 达日限额提醒改为整行展示：长模型名与恢复时刻不再被 180px 账号列截断，悬停提示只保留原因与影响范围（#461）。套件 170 个（126 Python + 44 JS）。
+
+- **账号列的提醒胶囊改成整行完整显示**：账号列宽 180px，模型冷却胶囊（`模型 · 撞线 X · 恢复 Y`）与按模型达日限额胶囊（`模型 · 今日已用 N / 上限 M token 已达限额`）原本挤在这一列里，`white-space:nowrap` + 省略号让模型名一长（如 `deepseek-v4.1-flash`）就把时刻整段切掉。现在这两类胶囊从账号列拆出，紧跟账号行另起一整行（`colspan` 跨满表头列数，窄屏 grid 下跨满 6 栏），文本自己完整：模型名、撞线 / 恢复时刻、本地时间口径，达限那类还带已用 / 上限数值与 0 点恢复。**悬停提示只保留可见文本没说的部分**——上游判定额度用满（code 6004）/ 临时限流（429）等原因，以及「仅此模型受限，同账号其他模型照常接单」的影响范围；模型名与时刻已画在胶囊上，不再在悬停里重复一遍。这一行是账号行的**续行**，两行之间不画分割线（账号行交出 `td` 默认的 `border-bottom`，续行也不画 `border-top`，窄屏下负 margin 把两张卡片拼成一块），悬停账号行时续行一起高亮，避免「徽章和所属账号像两块」的割裂感。排序仍按账号整体走，账号行 ↔ tbody 行的对应关系不变。
+  Model cooldown and per-model daily-limit pills no longer live in the 180px account column, where `nowrap` + ellipsis cut the timestamps off; they now render as their own full-width row right below the account row (`colspan` spanning every header column, 6 grid columns on narrow screens), carrying the model name, cap and reset times, the "times are local" note, and used-vs-cap counts for daily limits. **The tooltip keeps only what the pill does not already say**: the reason (quota exhausted with code 6004 / temporary 429) and the scope ("only this model is restricted, the account's other models still take traffic"). The model name and timestamps are drawn on the pill, so they are no longer repeated on hover. That row is a **continuation** of the account row: no divider is drawn between them (the account row gives up the `td` default `border-bottom`, the continuation draws no `border-top`, and on narrow screens a negative margin joins the two cards into one), and hovering the account row highlights the continuation too, so the pill never looks detached from the account it belongs to. Sorting still reorders whole account rows, so the account↔row mapping is unchanged.
+
+## v1.7.14
+
+渠道校验与账号治理、协议兼容与面板体验：传输层头名保真与按账号隔离连接、CLI / VSCode 身份对齐官方客户端、11140 默认停止换号并持久化（#429 / #431 / #448 / #450）；401 先刷新 token 再换号、自签证书代理支持 WB_CA_BUNDLE（#441 / #439 / #435）；补齐 Anthropic tool_result 图片结构化、工具结果插入顺序与函数 Schema 规整（#452 / #420 / #446 / #451）；新增按账号定址路由、排程时段配置、6004 标签修复、撞线样本区块（#455 / #456 / #454 / #253）。套件 169 个（126 Python + 43 JS）。
+
+- **修复自签证书代理导致的 OAuth 502**（#441）：证书校验失败是配置错误，不再按网络抖动重试 3 次。网关支持 `WB_CA_BUNDLE` / `SSL_CERT_FILE`，在系统根证书之外追加私有 CA；没配或配错时直接返回包含变量名和原始错误的提示，不再只显示一句 502。
+- **HTTP 401 先刷新 token 再换号**（#435、#439）：同一次请求内每个账号最多刷新一次，刷新成功优先重试同一个号；只有刷新失败或重试仍 401 才按原逻辑轮换。减少「凭证其实能恢复、却被当成坏号冷却」的情况。
+- **收紧 401 判定，避免中间层 HTML 401 锁死账号**（#440）：凭证失效的判定不再只看状态码；中间层返回 HTML 401 时不会再把账号标成 token 过期并停用，只有 JSON 凭证失效才走重新登录引导。
+- **剩余用量估算新增「撞线样本」区块**（#253）：按 (区域, 模型) 列出每个撞线窗口的原始值（账号、撞线时刻、窗口用量），并提供「复制为征集格式」按钮，方便汇总跨实例样本。数据来自现有 `limit-events`，不新增上游请求。
+- **修复工具结果前插入消息导致 11148**（#420）：`repack_tool_result_blocks` 以前在 `assistant tool_calls` 与第一条 `tool` 结果之间出现 user / developer 消息时直接放弃重排；现在会把这类插入消息移到整批结果之后，保证结果紧跟调用。
+- **按账号定址的调用入口**（#455）：新增 `/u/<ref>/v1/...`（`chat/completions`、`responses`、`models` 等），`<ref>` 支持完整 uid、uid 前 8 位或昵称；歧义 / 找不到 / 账号不可用都会如实报错，不会猜号或偷偷换号。不带 `/u/` 前缀的旧路径行为不变；定址请求同样走现有 API Key / 面板鉴权与用量统计。
+- **修复用量时序热力图跨日合并**（#447）：时序桶网格改为对齐本地午夜 / 整点，跨日查询不再把两天并进同一个桶。
+- **修复账号表 6004 短标签在冷却到期后不消失**（#454）：模型级 429 的 `lastError` 是历史记录，冷却到期后 `pills` 已空，面板仍把它画成账号级 `HTTP 429 · code:6004`；现在该哨兵值不再进入账号级错误标签，冷却期间仍由 `coolPills` 显示「撞线 / 恢复」。
+- **后台排程时段可配置**（#456）：`accounts/settings.json` 新增 `schedule` 段（`checkin` / `travel` / `keepalive` / `cat`，24 小时制，支持数组或逗号串），缺省 / 非法 / 越界 / 空逐项回落旧默认（09:00/21:00、22:00、01:00），按 mtime 缓存免重启生效；`/scheduler` 的 `mode` / `mode_cn` / `mode_intl` 按实际时段生成。
+- **修复 Anthropic `tool_result` 图片被拍平成文本**（#452）：`/v1/messages` 的工具结果里带图片时，base64 data URL 以前被当普通文本发给上游，按约 1 token/字符计费，一张截图就能把长上下文顶到 11115；现在含图时保留结构化 `image_url` 数组，纯文本仍折叠成字符串。实测同一张 31KB PNG 从约 3 万 input tokens 降到 665。
+- **修复函数参数 Schema 结构缺陷与工具参数反序列化失败导致上游 400 拦截**：针对客户端（如 Hermes Agent、各类 OpenAI 兼容 SDK 等）声明无参工具时发送 `"parameters": {}`（缺失顶层 `type: "object"`）触发上游 Go struct 校验拒绝报 `code 11129 invalid function call parameters` 的问题，网关层自动补齐 `type: "object"` 与 `properties: {}` 并清洗非法的 `required` 字段；同步修复历史对话消息中 `tool_calls[].function.arguments` 为字典对象导致上游反序列化失败（`code 11101`）的缺陷。
+- **自动切换出站身份支持配置允许的身份**：此前 429 自动换身分固定按 WB → VSC → CLI 轮转，无法排除某条身份（例如不想让账号落到某个身份上）。现在「设置 → 自动切换出站身份」可以勾选允许的 WB / VSC / CLI（至少一个），自动切换只在勾选的身份之间按原顺序轮转；未配置时默认三条全允许，行为与旧版一致。设置持久化在 `accounts/settings.json` 的 `auto_switch_products`，读取时会过滤未知值，保存时校验非法值返回 400。
+
+- **修复 Safari 无法复制 API Key**：面板只渲染遮罩后的 Key，复制时必先 `await /settings/reveal`，而 Safari 把剪贴板绑定在点击的 transient activation 上，`await` 之后 `writeText()` 以 `NotAllowedError` 拒绝。现在值已在手时同步写入、需取真值时改用 `ClipboardItem` 的 Promise 形式；`copyFilteredLogs()` 也改走 `writeClipboard()`，修掉纯 http 区网（非安全上下文）下的 `TypeError`。
+- 新增 `GET /v1/balance-summary`：使用模型 API Key 读取当前区域启用账号的积分汇总，仅返回余额、账号数量与快照时间；只读缓存，不刷新上游，也不暴露 UID、昵称或单账号信息。
+- 新增可选 `WB_PRESERVE_REQUEST_CONTRACT=1`（默认关闭，修改后重启网关）：将 Responses `text.format` 映射为 Chat `response_format`，保留 namespace 扁平函数的 `strict`，并跳过历史工具参数及 `tool` / `function` 结果的指纹替换，避免把 `11-128` 等业务数据改坏。其余角色文本仍沿用既有清洗；关闭时全部维持旧行为。此开关只保真字段和工具数据，不校验输出、不保证上游执行 JSON Schema 或 `tool_choice`。关闭开关并重启即可回退。
+  Opt in with `WB_PRESERVE_REQUEST_CONTRACT=1` (off by default; restart the gateway after changing it) to map Responses `text.format` to Chat `response_format`, preserve flat namespace function `strict`, and bypass fingerprint rewriting of historical tool arguments and `tool` / `function` results. Other role text keeps existing sanitization; disabled mode is unchanged. This preserves fields/data only: it neither validates output nor guarantees upstream JSON Schema / `tool_choice` enforcement. Unset the flag and restart to roll back.
+
+### 模型额度定时主动查询
+
+- **新增「模型额度定时主动查询」：不用等真实请求撞限额，就知道哪条配额线已经满了**。窗口探针（`wb_window_probe`）补的是下半段——某条配额线已经 429 之后，把重置时刻用掉；上半段此前没人管：一条线在被打满之前是完全黑盒的，只能等真实请求撞上去才暴露。现在在「设置 → 模型额度定时主动查询」勾选模型后，网关每 **6 小时**为每个「账号 + 模型」发一个最小请求体检：
+  - **查到 429 + 重置时刻** → 立刻记该模型的冷却（真实请求不再撞这条已满的线），并把重置时刻登记给窗口探针，到点抢占新一轮窗口；这条线之后**不再定时查询**——本地已经存了它的 429 记录，交给探针就够了。
+  - **请求通了** → 这条线还没到限额，继续按 6 小时轮询；探针成功、窗口记录撤销之后，轮询自动恢复。
+  - **网络/解析失败** → 不算查过（不会因此推迟整整一个周期），15 分钟后重试；连续失败到上限才推迟到下一个周期。
+  - 记录落在 `accounts/quota_scan.json`（原子写，**重启后仍保留每个组合的上次查询时刻**），重启不会让所有模型重新查一遍；一次性勾上一堆模型时，首次查询会自动错峰（相邻组合相隔 15 秒），不会在同一瞬间把请求全打上去。
+  - 默认**不勾选任何模型**（即关闭），勾了才会发请求——每次查询都会真的消耗该账号极少量额度。设置页能看到每个「账号 + 模型」的最近结果与下次查询时间，也可以点「立即查询」跳过等待；已经有 429 记录、或正在冷却中的组合不会被额外撞一次。
+- 新增 `tests/_test_quota_scan.py`（16 项）：钉住未勾选时什么都不做、查通之后要等满一个间隔、429 时既记冷却又登记窗口且之后停止轮询、失败不算查过并按短间隔重试、连续失败到上限才推迟到下一周期、持久化与重启视角、停用/无凭证/冷却中的组合被跳过、首次登记错峰与批次上限。
+- **出站 chat 请求：头名保真 + 按账号隔离连接 + 紧凑 JSON**：出站头名此前被 `urllib` / 连接池统一改写大小写（`X-Request-ID` → `X-Request-Id`、`X-IDE-*` → `X-Ide-*`、`traceparent` / `b3` → `Traceparent` / `B3`），与官方客户端代码里的写法不是同一字节串；现在 chat / 每日活跃 / 面板探活三条路径按原名原样发送，billing / 登录 / 签到等未传有序头的路径行为不变。连接池键新增凭据摘要（`Authorization` / `X-Refresh-Token` / `X-User-Id` 的 sha256 前 16 位）：同一出口上的不同账号不再共用同一条 TCP/TLS 连接（同一账号仍复用；`egress_key` 与退避 / 熔断口径不变）。chat 请求体改为紧凑 JSON（与 Node `JSON.stringify` 一致）。测试：`tests/_test_upstream_pool.py` 新增 [17] 头名保真 / [18] 按账号分池，`tests/_test_upstream_repairs.py` 新增 [6] 紧凑 JSON。
+- **CLI 身份对齐官方 CodeBuddy CLI 2.168.2**：`X-IDE-Version` 与 UA 升到
+  `2.168.2`（`CLI/2.168.2 CodeBuddy/2.168.2`；官方 adapter 会删掉 SDK 的
+  user-agent，CLI 也没有 userAgentExtension，所以是两段）；补齐官方 CLI 的
+  `X-Agent-Purpose` / `X-Agent-Type` / `X-Agent-Runtime`、`X-Private-Data`
+  （个人号 false、企业号 true）、四段 b3 链路头族（含 `X-B3-ParentSpanId`）
+  与 OpenAI Node SDK 6.25.0 的 `x-stainless-*` 指纹头（OS/arch/node 版本默认取
+  宿主，可用 `WB_IDENTITY_OS` / `WB_IDENTITY_ARCH` /
+  `WB_IDENTITY_NODE_VERSION` 覆盖）。`X-Conversation-ID`
+  按（账号, 会话键）稳定、`X-Conversation-Request-ID` 在一轮 user send 的
+  所有重试/换号里复用同一个值，`X-Request-ID` 仍等于
+  `X-Conversation-Message-ID`，`X-Root-Request-ID` = 本轮
+  `X-Conversation-Request-ID`。chat 请求去掉 Origin / Referer /
+  X-CodeBuddy-Request / X-Requested-With / Accept-Language，`Accept` 改为
+  `application/json`；请求体 gzip 并注入 `cache_retention=long`，CLI 身份
+  不再发 `X-Device-Token`。桌面端 / VSCode 身份行为不变。国际版端点仍是
+  `www.workbuddy.ai`（官方 CLI 用 `www.codebuddy.ai`，解析不了，属已知差异，
+  本版不改）。
+- **VSCode 身份对齐官方扩展 4.12.39997873**：UA 改为
+  `VSCode/1.119.0 CodeBuddy/4.12.39997873`（productName=CodeBuddy、扩展版本
+  4.12.39997873），补 `X-Product-Version` / `X-Model-ID` / `X-Agent-Type` /
+  `X-Private-Data`（仅 intl）/ B3 链路头族（含 `X-B3-ParentSpanId` 与四段 b3）/
+  `X-Request-Trace-Id` / `monitor_*` 时间戳；`X-Request-ID` 与
+  `X-Conversation-Request-ID` 同值、`X-Conversation-Message-ID` 独立，
+  `X-Conversation-ID` 为 32 位 hex（宿主 VSCode 版本默认 1.119.0，可用
+  `WB_VSCODE_IDE_VERSION` 覆盖）。桌面端 / CLI 身份行为不变。官方主 chat
+  默认请求体 gzip（`RequestBodyGzip=true` → `executeByMode` →
+  `createCustomFetch` 压缩），本版启用；非企业号没有真实设备 token 时按官方
+  失败态发 `X-Device-Token-Error: sdk_not_initialized`（不伪造 token）。
+- **阿里云 systemd 部署支持手动安装稳定版**：设置页可从配置的 fork Release 安装新版本；更新包必须通过 `SHA256SUMS` 与 `release-manifest.json` 校验，账号与用量目录列为保护路径。网关只提交版本号，root-owned systemd 更新服务负责备份、替换、重启与健康检查；失败会恢复程序文件。每日检查仍默认关闭，打开后也只检查、不自动安装。
+- **风控限制 403（code 11140）不再换号连坐：默认停手、限制持久化、整池暂停**（#422、#425）：上游对国际版账号的风控在 2026-10-15/16 之后明显收紧，账号级限制的正文是 `403 {"code":11140,"msg":"request illegal","displayMsg":"账号存在异常行为，已被限制使用"}`；社区复盘（[Zhengyuuuui/workbuddy2api](https://github.com/Zhengyuuuui/workbuddy2api/blob/main/doc/incident-postmortem-and-hardening-checklist.md)）给出的处置红线是「看到 11140 立即停手，解封前严禁换号继续打同一设备——设备指纹会连坐」。旧实现在 11140 上冷却该号后立刻换下一个号继续同一请求，一个请求最多遍历整个池子（#422 用户实测 7 个号在一次任务里全被封），而且冷却只存在内存里，重启 / 刷新 token / 「一键测试」都会把它清掉。现在：
+  - **默认不再跨号重试**：第一个账号被限制就停手，把原因交给客户端，下一次请求自然落到别的账号；需要旧行为时设 `WB_RESTRICTED_403_ROTATE_MAX`（默认 0）。
+  - **限制期限持久化**：账号档案新增 `restrictedUntil`（2 小时），重启 / 换身分 / 刷新凭证 / 一键测试都不再把它放回池子；只有真正成功一次（说明上游已解除）才清。
+  - **整池连坐暂停**：同一区域在 `WB_RESTRICTION_WAVE_WINDOW`（默认 900 秒）内被限制 `WB_RESTRICTION_WAVE_MIN`（默认 2）个账号，就暂停该区域派发 `WB_RESTRICTION_HOLD_SECONDS`（默认 1800 秒），期间一个上游请求都不发、直接返回 429 与申诉指引；设 `WB_RESTRICTION_HOLD_SECONDS=0` 关闭暂停。
+  - 后台巡检 / 打卡会跳过受限账号与暂停中的区域；「一键测试」识别到 11140 也按账号级限制记账，不再用 60 秒冷却覆盖。
+  - `tests/_test_restricted_403.py` 扩到 14 项（默认不换号 / 开关恢复旧行为 / 单号场景 / 连坐暂停 / 关闭暂停 / 持久化与清冷却 / 内容审核 403 不变）。
+- **国际版 chat 不再发送 `X-Device-Token`**：国内版客户端带真实 Turing Shield 设备 token，国际版客户端没有这个头（Zhengyuuuui 三轮抓包与 5.7.6 / 5.8.4 二进制构造器都不含）；网关配置的是全局单值，发给国际版账号既是伪造头、又把多个账号串到同一台设备上。billing 路径与国内版 chat 维持原行为。
+- **`X-Conversation-ID` 按会话稳定**：官方客户端同一会话复用同一个会话 id（主对话是 UUIDv4），网关此前每个请求都新生成，等于把一次多轮对话拆成上千个「一次性会话」。现在 chat 路径用 `wb_identity.conversation_id_for(uid, session_key)` 按「账号 + 会话键」稳定派生，不同账号 / 会话互不相同；客户端没带会话键时保持每请求新生成。
+# 版本更新记录

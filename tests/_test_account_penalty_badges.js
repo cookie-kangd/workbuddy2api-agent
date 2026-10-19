@@ -73,6 +73,26 @@ check('积分限额优先', row({creditLimitReached: true}).includes('积分限�
 check('模型级冷却照旧出标签',
   row({modelCooldowns: [{model: 'gpt-6-sol', expiresAt: NOW + 900}]}).includes('gpt-6-sol'));
 
+/* ---- 2b. 6004 短标签只在冷却仍在时出现（#454） ------------------------ */
+
+const stale6004 = row({
+  lastError: 'HTTP 429 (model throttled)',
+  lastErrorDetail: '{"code":6004,"msg":"usage exceeds frequency limit"}',
+});
+check('冷却到期后不再画 6004 短标签', !stale6004.includes('code:6004'), stale6004);
+check('冷却到期后状态仍是可用', stale6004.includes('可用'), stale6004);
+
+const active6004 = row({
+  lastError: 'HTTP 429 (model throttled)',
+  lastErrorDetail: '{"code":6004}',
+  modelCooldowns: [{model: 'dsf', expiresAt: NOW + 600, cappedAt: NOW}],
+});
+check('冷却中仍有模型标签', active6004.includes('dsf') && active6004.includes('撞线'),
+  active6004);
+
+const account429 = row({lastError: 'HTTP 429', lastErrorDetail: '{"code":6004}'});
+check('账号级 429 仍显示短标签', account429.includes('HTTP 429'), account429);
+
 /* ---- 3. 「当前禁用总览」也要列出来 ------------------------------------ */
 
 api.setView('intl');

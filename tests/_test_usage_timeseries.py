@@ -89,6 +89,53 @@ class TimeseriesTests(unittest.TestCase):
                                                until=now)
         self.assertEqual(sum(b["total_tokens"] for b in all_realms["series"]), 300)
 
+    def test_custom_window_day_buckets_align_to_local_midnight(self):
+        """issue #447：面板热力图用 since=now-366d（任意时刻）拉日桶——
+        桶仍必须按本地午夜切分，否则相邻两天会被并进同一个桶（当天的量
+        画进昨天的格子）。"""
+        now = time.time()
+        today0 = wb_proxy._local_midnight(now)
+        yest0 = today0 - 86400.0
+        rows = [row(yest0 + 60 + i * 3600) for i in range(10)]
+        span = max(1.0, now - today0)
+        rows += [row(today0 + 1 + i * (span / 6.0)) for i in range(5)]
+        self.write(rows)
+        got = wb_proxy.usage_timeseries(realm="all", range="custom",
+                                        since=now - 366 * 86400, until=now,
+                                        bucket_seconds=86400, ttl=0)
+        self.assertEqual(got["bucket_seconds"], 86400)
+        for b in got["series"]:
+            self.assertEqual(wb_proxy._local_midnight(b["at"]), b["at"],
+                             "日桶 at 必须落在本地午夜：%r" % (b["at"],))
+        by_day = {}
+        for b in got["series"]:
+            key = wb_proxy._local_day_key(b["at"])
+            by_day[key] = by_day.get(key, 0) + b["requests"]
+        self.assertEqual(by_day.get(wb_proxy._local_day_key(yest0)), 10)
+        self.assertEqual(by_day.get(wb_proxy._local_day_key(today0)), 5)
+
+    def test_custom_window_hour_and_minute_buckets_align_to_wall_clock(self):
+        """非整点 / 非整分的 since：小时桶、分钟桶同样要对齐本地墙上时间
+        （与切片路径同一网格），不能锚在 since 上。"""
+        now = time.time()
+        base_hour = wb_proxy._local_hour_start(now - 3600)
+        lo = base_hour + 17 * 60 + 23  # 非整点、非整分
+        self.write([row(lo + 30), row(lo + 90), row(lo + 150)])
+        hourly = wb_proxy.usage_timeseries(realm="all", range="custom",
+                                           since=lo, until=lo + 7200,
+                                           bucket_seconds=3600, ttl=0)
+        self.assertTrue(hourly["series"])
+        for b in hourly["series"]:
+            self.assertEqual(wb_proxy._local_hour_start(b["at"]), b["at"],
+                             "小时桶 at 必须落在本地整点：%r" % (b["at"],))
+        minutely = wb_proxy.usage_timeseries(realm="all", range="custom",
+                                             since=lo, until=lo + 600,
+                                             bucket_seconds=60, ttl=0)
+        self.assertTrue(minutely["series"])
+        for b in minutely["series"]:
+            self.assertEqual(int(b["at"]) % 60, 0,
+                             "分钟桶 at 必须落在整分：%r" % (b["at"],))
+
     def credits_window(self, rows):
         """写日志 + 清时间序列状态（切片/扫描两条路径都从零起）。"""
         self.write(rows)

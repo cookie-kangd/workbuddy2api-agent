@@ -15,7 +15,8 @@ import urllib.request
 import wb_accounts as _accounts
 import wb_identity
 
-CHAT_BASE = "https://copilot.tencent.com"
+# 默认 https://copilot.tencent.com；WB_CN_CHAT_UPSTREAM 可覆盖（见 wb_identity.CN_CHAT_BASE）。
+CHAT_BASE = wb_identity.CN_CHAT_BASE
 BILL_BASE = "https://www.codebuddy.cn"
 WEB_BASE = "https://www.workbuddy.cn"
 #: 本模块只跑国内版，桌面端 UA 与 wb_identity 同一来源，避免两处各写一份

@@ -107,6 +107,42 @@ check("tool_result maps to a tool message",
       and tool_msg.get("content") == "a.txt", tool_msg)
 
 print()
+print("[1b] tool_result keeps images structured")
+img_block = {"type": "image", "source": {"type": "base64",
+             "media_type": "image/png", "data": "bbb"}}
+mixed = P._anthropic_tool_result_content([
+    {"type": "text", "text": "screenshot read"}, img_block,
+    {"type": "document", "source": {"type": "text", "data": "doc"}},
+])
+check("mixed tool_result is a list", isinstance(mixed, list), mixed)
+check("text part kept", mixed[0] == {"type": "text", "text": "screenshot read"}, mixed)
+check("image part kept as image_url",
+      mixed[1] == {"type": "image_url", "image_url": {
+          "url": "data:image/png;base64,bbb"}}, mixed)
+check("document part becomes text",
+      mixed[2]["type"] == "text" and "doc" in mixed[2]["text"], mixed)
+check("pure text tool_result stays a string",
+      P._anthropic_tool_result_content("a.txt") == "a.txt")
+check("text error result is prefixed",
+      P._anthropic_tool_result_content("boom", True) == "error: boom")
+err_parts = P._anthropic_tool_result_content([img_block], True)
+check("image error result gets an error text part",
+      err_parts[0] == {"type": "text", "text": "error:"}, err_parts)
+
+req_img = {"model": "x", "messages": [
+    {"role": "assistant", "content": [
+        {"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]},
+    {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": [
+            {"type": "text", "text": "shot"}, img_block]}],
+    }]}
+chat_img = P.messages_to_chat(req_img)
+tool_img = [m for m in chat_img["messages"] if m.get("role") == "tool"][0]
+check("messages_to_chat keeps the image part",
+      isinstance(tool_img.get("content"), list)
+      and tool_img["content"][1]["type"] == "image_url", tool_img)
+
+print()
 print("[2] budget thinking maps to effort")
 check("disabled -> none", P.anthropic_effort_from_messages({"thinking": {"type": "disabled"}}) == "none")
 check("enabled low", P.anthropic_effort_from_messages({"thinking": {"type": "enabled", "budget_tokens": 1000}}) == "low")

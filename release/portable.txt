@@ -28,7 +28,6 @@ console_tail.py
 # 省得静默启动后还得去浏览器点一下（pythonw 没有窗口可关）。
 close-wb-proxy.bat
 close_wb_proxy.py
-
 start-wb-proxy.bat
 start-wb-proxy.command
 start-wb-proxy.sh
@@ -64,6 +63,7 @@ wb_pricing.py
 wb_probes.py
 wb_prompt.py
 wb_proxy.py
+wb_quota_scan.py
 wb_scheduler.py
 wb_settings.py
 wb_tasks.py
@@ -71,3 +71,4 @@ wb_upstream_pool.py
 wb_upstream_thirdparty.py
 wb_webagent.py
 wb_webtools.py
+wb_window_probe.py

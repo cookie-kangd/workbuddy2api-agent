@@ -16,6 +16,7 @@
 import json
 import os
 import socket
+import ssl
 import sys
 import time
 import types
@@ -359,6 +360,118 @@ class LeftTimeFormatTests(unittest.TestCase):
         self.assertIn("模型 deepseek-v4.1-flash 冷却", reason)
         self.assertIn("剩余 1m30s", reason)
         self.assertIn("连续第 2 次", reason)
+
+
+class TLSVerifyTests(unittest.TestCase):
+    """A bad certificate chain is a configuration error, not a transient fault."""
+
+    def test_error_shape_is_recognised_through_urlerror(self):
+        exc = ssl.SSLCertVerificationError(
+            1, "certificate verify failed: self-signed certificate in certificate chain")
+        self.assertTrue(A.is_tls_verify_error(exc))
+        wrapped = urllib.error.URLError(exc)
+        self.assertTrue(A.is_tls_verify_error(wrapped))
+        self.assertFalse(A._retryable(wrapped),
+                         "证书错误重试三次只会把同一个失败放大")
+
+    def test_http_json_does_not_retry_a_certificate_error(self):
+        calls = []
+
+        def fake_urlopen(req, timeout=30, proxy=""):
+            calls.append(1)
+            raise urllib.error.URLError(ssl.SSLCertVerificationError(
+                1, "certificate verify failed: self-signed certificate in certificate chain"))
+
+        old = A.urlopen
+        A.urlopen = fake_urlopen
+        try:
+            with self.assertRaises(A.TLSVerifyError) as ctx:
+                A.http_json("https://example.invalid/v2/plugin/auth/state",
+                            data=b"{}", retries=3)
+        finally:
+            A.urlopen = old
+        self.assertEqual(len(calls), 1, "证书错误应当一次就停")
+        self.assertIn("WB_CA_BUNDLE", str(ctx.exception))
+
+    def test_open_upstream_stops_without_charging_the_account(self):
+        acc = account()
+        old_pool, old_urlopen = P.POOL, A.urlopen
+        P.POOL = _FakePool(acc)
+
+        def fake_urlopen(req, timeout=30, proxy=""):
+            raise urllib.error.URLError(ssl.SSLCertVerificationError(
+                1, "certificate verify failed: self-signed certificate in certificate chain"))
+
+        A.urlopen = fake_urlopen
+        try:
+            with self.assertRaises(A.TLSVerifyError) as ctx:
+                P.open_upstream({"model": "deepseek-v4.1-flash",
+                                 "messages": [{"role": "user", "content": "hi"}]},
+                                target_realm="intl")
+        finally:
+            P.POOL, A.urlopen = old_pool, old_urlopen
+        self.assertIn("WB_CA_BUNDLE", str(ctx.exception))
+        self.assertEqual(acc.fails, 0)
+        self.assertEqual(acc.cooldown_until, 0.0)
+
+
+class RefreshOn401Tests(unittest.TestCase):
+    """401 先刷新一次 token 再换号；刷新成功的同一个号要优先重试。"""
+
+    def setUp(self):
+        self.account = account()
+        self.pool = _FakePool(self.account)
+        self.old_pool, self.old_urlopen = P.POOL, A.urlopen
+        P.POOL = self.pool
+        self.calls = 0
+        self.refreshes = 0
+
+        def refresh():
+            self.refreshes += 1
+            return True
+
+        self.account.refresh = refresh
+
+    def tearDown(self):
+        P.POOL, A.urlopen = self.old_pool, self.old_urlopen
+
+    def _run(self, urlopen):
+        A.urlopen = urlopen
+        with mock.patch.object(P, "_apply_stream_idle_timeout", lambda *a: None), \
+                mock.patch.object(P.time, "sleep", lambda *_: None):
+            return P.open_upstream(
+                {"model": "deepseek-v4.1-flash",
+                 "messages": [{"role": "user", "content": "hi"}]},
+                target_realm="intl")
+
+    def test_401_refreshes_and_retries_the_same_account(self):
+        class Resp(object):
+            def close(self):
+                pass
+
+        def fake_urlopen(req, timeout=30, proxy=""):
+            self.calls += 1
+            if self.calls == 1:
+                raise urllib.error.HTTPError(
+                    req.full_url, 401, "Unauthorized", {}, None)
+            return Resp()
+
+        resp, acc, _ = self._run(fake_urlopen)
+        self.assertEqual(self.calls, 2)
+        self.assertEqual(self.refreshes, 1)
+        self.assertIs(acc, self.account)
+        self.assertIsInstance(resp, Resp)
+
+    def test_401_after_refresh_does_not_refresh_in_a_loop(self):
+        def fake_urlopen(req, timeout=30, proxy=""):
+            self.calls += 1
+            raise urllib.error.HTTPError(
+                req.full_url, 401, "Unauthorized", {}, None)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            self._run(fake_urlopen)
+        self.assertEqual(self.calls, 2, "刷新后只重试一次，第二次 401 就换号/收尾")
+        self.assertEqual(self.refreshes, 1)
 
 
 class _FakePool(object):

@@ -52,6 +52,12 @@ S3_INTL_6004 = ('{"code":6004,"msg":"usage exceeds frequency limit, but don\'t '
                 'alternatively, you can switch to the other models to continue '
                 'using it."}')
 
+# A 429 also registers a window record (wb_window_probe) next to the gateway's
+# accounts dir. The stub pool below has no `dir`, so the write would fall back
+# to the repo's own accounts/ folder - point the constant at the temp dir as
+# well, so running the suite never leaves state behind in the checkout.
+proxy.ACCOUNTS_DIR = _startup_dir.name
+
 
 class ModelCooldownTests(unittest.TestCase):
     def account(self):
@@ -424,6 +430,28 @@ class ModelCooldownTests(unittest.TestCase):
             json.dump({"auto_switch_product": "false"}, fh)
         self.assertFalse(settings.auto_switch_product(directory),
                          "a hand-edited string must not read as enabled")
+
+    def test_auto_switch_products_defaults_and_validates(self):
+        """Allowed identities: all three by default; unknown entries rejected."""
+        directory = tempfile.mkdtemp(prefix="auto-switch-products-")
+        self.assertEqual(settings.auto_switch_products(directory),
+                         ["workbuddy", "vscode", "cli"])
+        self.assertEqual(
+            settings.set_auto_switch_products(directory, ["vscode", "cli"]),
+            ["vscode", "cli"])
+        self.assertEqual(settings.auto_switch_products(directory),
+                         ["vscode", "cli"])
+        self.assertEqual(
+            settings.set_auto_switch_products(directory, ["vscode", "vscode"]),
+            ["vscode"], "duplicates are collapsed")
+        with self.assertRaises(ValueError):
+            settings.set_auto_switch_products(directory, ["bogus"])
+        with self.assertRaises(ValueError):
+            settings.set_auto_switch_products(directory, "vscode")
+        with open(settings.settings_path(directory), "w", encoding="utf-8") as fh:
+            json.dump({"auto_switch_products": ["bogus", 7, "vscode"]}, fh)
+        self.assertEqual(settings.auto_switch_products(directory), ["vscode"],
+                         "hand-edited garbage is filtered, not trusted")
 
     def test_a_429_keeps_the_identity_while_the_setting_is_off(self):
         directory = tempfile.mkdtemp(prefix="auto-switch-off-")

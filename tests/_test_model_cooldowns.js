@@ -9,8 +9,8 @@ dom.installDom({
   fetch: () => Promise.resolve({ok: true, status: 200, json: () => Promise.resolve({})}),
 });
 
-const {accountRow, coolPills, fmtCoolAt, disabledRows, renderDisabled} = new Function(script + `
-  return {accountRow, coolPills, fmtCoolAt, disabledRows, renderDisabled};`)();
+const {accountRow, coolRow, limitRow, fmtCoolAt, disabledRows, renderDisabled} = new Function(script + `
+  return {accountRow, coolRow, limitRow, fmtCoolAt, disabledRows, renderDisabled};`)();
 const base = overrides => Object.assign({
   uid: 'uid-cn-0001', nickname: 'synthetic', realm: 'cn', enabled: true,
   source: 'oauth', expiresIn: '24 hours', lastError: '', inCooldown: false,
@@ -26,13 +26,16 @@ const fmtAt = epoch => {
 };
 const localTime = fmtAt(until);
 
-assert.equal(coolPills(base({})), '');
-assert.equal(coolPills(base({modelCooldowns: []})), '');
+// 胶囊现在独占一整行（coolRow），不再挤在账号列里——账号列只有 180px，长模型名
+// 必然被省略号切掉，整行才放得下完整文本。count 类断言改用整段渲染。
+assert.equal(coolRow(base({})), '');
+assert.equal(coolRow(base({modelCooldowns: []})), '');
 assert.equal(fmtCoolAt(until), localTime);
 assert.equal(fmtCoolAt('bad-value'), '');
 
 const row = accountRow(base({modelCooldowns: [{model: 'glm-5.3', expiresAt: until}]}));
-assert(row.includes('glm-5.3 · ' + localTime + ' 恢复'));
+assert(row.includes('glm-5.3 · 恢复时刻 ' + localTime));
+// 可见文本要交代时间口径，并且把模型名与恢复时刻写全（不再靠 title 兜底）。
 assert(row.includes('时间为本地时间'));
 assert(row.includes('>可用</span>')); // The account still serves other models.
 assert(!row.includes('冷却 600s'));
@@ -50,18 +53,19 @@ assert(multi.indexOf('glm-5.2') < multi.indexOf('glm-5.3'));
 assert.equal((multi.match(/class="cool-pill"/g) || []).length, 2);
 
 // 6004 撞线（cap 持久化，重启加载后仍在）的 pill：撞线时间 + 恢复时间都要画。
+// 文案里「撞线」这个词本身就区分了两类：临时限流没有撞线时刻。
 const hit = until - 7200;
 const capPill = accountRow(base({modelCooldowns: [
   {model: 'hy3', expiresAt: until, cappedAt: hit},
 ]}));
 assert(capPill.includes('hy3 · 撞线 ' + fmtAt(hit) + ' · 恢复 ' + localTime));
-assert(capPill.includes('上游判定额度用满'));
+assert(capPill.includes('时间为本地时间'));
 assert(capPill.includes('>可用</span>'));  // 同账号其他模型照常。
 // 撞线时间坏值时回退成普通 pill，不能画成「撞线 」。
 const badCap = accountRow(base({modelCooldowns: [
   {model: 'hy3', expiresAt: until, cappedAt: 'bad-value'},
 ]}));
-assert(badCap.includes('hy3 · ' + localTime + ' 恢复'));
+assert(badCap.includes('hy3 · 恢复时刻 ' + localTime));
 assert(!badCap.includes('撞线'));
 
 // 「当前禁用账号与模型」：两类模型级限流都有真实的起始时刻——6004 用上游给的

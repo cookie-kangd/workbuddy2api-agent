@@ -57,7 +57,8 @@ dom.installDom({
 
 const script = dashboardScript();
 const api = new Function(script + `
-  return { renderRemainingUsage, loadRemainingUsage, toggleRemainingModelFilter };`)();
+  return { renderRemainingUsage, loadRemainingUsage, toggleRemainingModelFilter,
+           remainingSamplesText };`)();
 
 // 渲染按区域拆成两块：断言用「两块拼起来」的视图，与拆分前逐条对应。
 const tbodyIntl = document.getElementById('remainingTbodyIntl');
@@ -216,6 +217,25 @@ check('再点一次显示全部',
       tbody.innerHTML.includes('deepseek-v4.1-flash') && tbody.innerHTML.includes('glm-5.3'),
       tbody.innerHTML);
 check('取消筛选后统计恢复', summaryEl.textContent.includes('2 项'), summaryEl.textContent);
+
+// ---- 2d. 撞线样本：逐窗口原始值 + 征集文本 --------------------------------
+api.renderRemainingUsage({
+  window_seconds: 86400, models: [], rows: [],
+  budgets: [{realm: 'intl', model: 'deepseek-v4.1-flash', avg: 200000000,
+             min: 199000000, max: 201000000, n: 2, active: true,
+             samples_list: [
+               {account: 'abcdef123456', at: 1, at_iso: '2026-10-09 10:00:00',
+                reset: 2, reset_iso: '2026-10-10 10:00:00', sample: 199000000},
+               {account: 'fedcba654321', at: 3, at_iso: '2026-10-10 11:00:00',
+                reset: 4, reset_iso: '2026-10-11 11:00:00', sample: 201000000}]}],
+});
+const sampleBody = document.getElementById('remainingSamplesBody');
+check('撞线样本区块列出逐窗口原始值',
+      sampleBody.innerHTML.includes('abcdef12') && sampleBody.innerHTML.includes('199'),
+      sampleBody.innerHTML);
+check('征集文本按区域/模型/窗口值生成',
+      api.remainingSamplesText().includes('国际版 / deepseek-v4.1-flash / 199') &&
+      api.remainingSamplesText().includes('201'), api.remainingSamplesText());
 
 // ---- 3. loadRemainingUsage() 打的就是这个接口 ------------------------------
 requested.length = 0;

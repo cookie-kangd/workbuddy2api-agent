@@ -255,6 +255,11 @@ class RemainingUsageTests(unittest.TestCase):
         self.assertEqual(budget["realm"], "intl")
         self.assertEqual(budget["avg"], 3000)
         self.assertEqual(budget["n"], 1)
+        self.assertEqual(len(budget["samples_list"]), 1)
+        sample = budget["samples_list"][0]
+        self.assertEqual(sample["account"], "acct-A")
+        self.assertEqual(sample["sample"], 3000)
+        self.assertTrue(sample["at_iso"])
 
     def test_budget_averages_accounts_not_events(self):
         # 新口径（近 3 天加权）下这条同时钉两件事：同一天内一个账号的多个
@@ -922,9 +927,8 @@ class RemainingUsageTests(unittest.TestCase):
         self.assertTrue(find_row(data, "acct-A")["cooling"])
 
     def test_live_event_dedupes_against_the_log_row(self):
-        reset = time.time() + 30 * 60
-        _, detail = reset_epoch(time.strftime("%Y-%m-%d %H:%M:%S",
-                                              time.localtime(reset)))
+        reset = int(time.time()) + 30 * 60
+        detail = cap_detail(reset)
         write_log([
             usage_row(reset - 2 * HOUR, "acct-A", 900),
             # The 429 row the log keeps for this same cap (the last account of

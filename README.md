@@ -1,7 +1,7 @@
 # WorkBuddy2API-Agent — 国际版、国内版多账号反代网关
 
 <p align="center">
-  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.19-2496ED?style=flat-square" alt="Version 0.1.19"></a>
+  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.20-2496ED?style=flat-square" alt="Version 0.1.20"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -86,7 +86,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 164 个套件：122 个 Python + 42 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 175 个套件：131 个 Python + 44 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Windows + Python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**。
 
@@ -173,6 +173,7 @@ Codex App 这类客户端会在 Responses 请求里声明 `web_search` / `web_fe
 ---
 
 ## 四、账号添加与管理
+窗口探针管的是「已经撞到 429 之后」；想提前知道某条配额线有没有被打满，可在「设置 → 模型额度定时主动查询」勾选模型：网关每 6 小时为每个「账号 + 模型」发一个最小请求做体检，查到 429 就立刻记该模型的冷却并把重置时刻交给窗口探针，请求通了就说明还没到限额。一旦某个「账号 + 模型」已经有了登记的 429 记录，就停止定时查询（改由窗口探针负责），记录消失后自动恢复轮询；每次查询都会消耗该账号极少量额度，默认不勾选任何模型。
 
 ### 方式一：浏览器 OAuth 授权（推荐，免客户端）
 
@@ -226,13 +227,15 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 | --- | --- | --- |
 | GET | `/health` | 健康检查（容器 / 监控探针） |
 | GET | `/v1/models` | 模型清单（OpenAI 兼容） |
+| GET | `/u/<ref>/v1/models` | 定址账号的模型清单；`<ref>` 支持完整 uid / uid 前 8 位 / 昵称，过滤该账号禁用的模型 |
 | POST | `/v1/chat/completions` | Chat Completions（流式 / 非流式） |
+| POST | `/u/<ref>/v1/chat/completions` | 定址调用：锁定该账号，不参与会话亲和 / 轮换 / 自动换号；账号不可用直接报错 |
 | POST | `/v1/responses` | Responses API（Codex 走这条） |
+| POST | `/u/<ref>/v1/responses` | 定址 Responses API，语义同上 |
 | POST | `/v1/messages` | 原生 Anthropic Messages |
 | GET | `/accounts` | 账号列表与状态 |
 | GET | `/usage/remaining` | 剩余用量估算（需面板会话） |
 | GET | `/scheduler` | 定时调度器运行状态与排程日志 |
-
 ---
 
 ## 七、与上游基线的差异
