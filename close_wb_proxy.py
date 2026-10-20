@@ -18,7 +18,7 @@ so does this script. Nothing here kills a process by PID - the service is
 asked to exit, which is what lets it flush its last usage row.
 
 Usage:
-    python close_wb_proxy.py [--port 8788] [--password admin] [--yes]
+    python close_wb_proxy.py [--port 8788] [--password admin] [--countdown 3]
 
 Password resolution, in order: --password, the WB_PANEL_PASSWORD
 environment variable, then the default "admin" (the same order
