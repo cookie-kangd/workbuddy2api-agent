@@ -1,7 +1,7 @@
 # WorkBuddy2API-Agent — 国际版、国内版多账号反代网关
 
 <p align="center">
-  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.21-2496ED?style=flat-square" alt="Version 0.1.21"></a>
+  <a href="https://github.com/cookie-kangd/workbuddy2api-agent/releases"><img src="https://img.shields.io/badge/Release-v0.1.22-2496ED?style=flat-square" alt="Version 0.1.22"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -62,6 +62,7 @@ close-wb-proxy.bat
 它做的和面板按钮是同一件事：面板登录 → `POST /shutdown` → 轮询 `/health`
 确认端口真的释放了。不是按 PID 杀进程，所以服务有机会把最后一条用量记录写盘。
 
+- **双击即关**：无需按 y，也不需要打开浏览器；执行完显示结果并倒计时 3 秒，窗口自动关闭（`--countdown 0` 可立即退出）
 - 非默认端口：`close-wb-proxy.bat 9000`
 - 面板密码不是默认 `admin` 时，先 `set WB_PANEL_PASSWORD=<密码>`，
   或直接用 `python close_wb_proxy.py --password <密码>`

@@ -84,7 +84,7 @@ class ScriptTests(unittest.TestCase):
     def test_it_uses_the_panel_endpoints_not_a_pid_kill(self):
         srv, port = serve(FakeGateway)
         try:
-            code, out = run_close(["--port", str(port), "--yes"])
+            code, out = run_close(["--port", str(port), "--countdown", "0"])
         finally:
             srv.shutdown()
             srv.server_close()
@@ -99,18 +99,18 @@ class ScriptTests(unittest.TestCase):
         srv, port = serve(FakeGateway)
         try:
             FakeGateway.password = "s3cr3t"
-            code, out = run_close(["--port", str(port), "--yes"])
+            code, out = run_close(["--port", str(port), "--countdown", "0"])
             self.assertEqual(code, 1, out)
             self.assertNotIn("shutdown", [k for k, _ in FakeGateway.calls])
             FakeGateway.calls = []
             os.environ["WB_PANEL_PASSWORD"] = "s3cr3t"
             try:
-                code, out = run_close(["--port", str(port), "--yes"])
+                code, out = run_close(["--port", str(port), "--countdown", "0"])
             finally:
                 os.environ.pop("WB_PANEL_PASSWORD", None)
             self.assertEqual(code, 0, out)
             FakeGateway.calls = []
-            code, out = run_close(["--port", str(port), "--yes",
+            code, out = run_close(["--port", str(port), "--countdown", "0",
                                    "--password", "s3cr3t"])
             self.assertEqual(code, 0, out)
         finally:
@@ -122,7 +122,7 @@ class ScriptTests(unittest.TestCase):
         s.bind(("127.0.0.1", 0))
         free_port = s.getsockname()[1]
         s.close()
-        code, out = run_close(["--port", str(free_port), "--yes"])
+        code, out = run_close(["--port", str(free_port), "--countdown", "0"])
         self.assertEqual(code, 0, out)
         self.assertIn("nothing to stop", out)
         self.assertEqual(FakeGateway.calls, [])
@@ -130,7 +130,7 @@ class ScriptTests(unittest.TestCase):
     def test_wrong_password_leaves_the_service_alone(self):
         srv, port = serve(FakeGateway)
         try:
-            code, out = run_close(["--port", str(port), "--yes",
+            code, out = run_close(["--port", str(port), "--countdown", "0",
                                    "--password", "nope"])
         finally:
             srv.shutdown()
@@ -146,7 +146,7 @@ class ScriptTests(unittest.TestCase):
         srv, port = serve(StaysUp)
         cwp.POLL_ATTEMPTS, cwp.POLL_INTERVAL = 3, 0.05
         try:
-            code, out = run_close(["--port", str(port), "--yes"])
+            code, out = run_close(["--port", str(port), "--countdown", "0"])
         finally:
             cwp.POLL_ATTEMPTS, cwp.POLL_INTERVAL = 15, 0.6
             srv.shutdown()
@@ -180,6 +180,37 @@ class ScriptTests(unittest.TestCase):
         listed = tools.read_manifest()
         self.assertIn("close-wb-proxy.bat", listed)
         self.assertIn("close_wb_proxy.py", listed)
+
+    def test_double_click_needs_no_input(self):
+        """双击 .bat 必须直接关：没有确认提示，也不读 stdin。
+
+        之前要按 y，双击后窗口挂着等人按键——静默启动后服务没有窗口可关，
+        这个脚本就是唯一的关闭入口，不能再多一步交互。
+        """
+        src = self._close_source()
+        self.assertNotIn("input(", src, "the script must not read stdin")
+        self.assertNotIn("[y/N]", src, "no confirmation prompt")
+        self.assertNotIn("cancelled", src, "no cancelled branch")
+
+    def test_it_counts_down_before_the_window_closes(self):
+        """结果要停留几秒再自动关窗，否则双击后一闪而过看不到结论。"""
+        src = self._close_source()
+        self.assertIn("DEFAULT_COUNTDOWN = 3", src)
+        self.assertIn("--countdown", src, "the wait must be overridable")
+        self.assertIn("def countdown(", src)
+        # 三个正常出口都要走倒计时，否则某个分支会卡住等人按键。
+        self.assertGreaterEqual(src.count("countdown(args.countdown)"), 5,
+                                "every exit path should count down")
+
+    def test_the_bat_does_not_pause_for_a_keypress(self):
+        """.bat 里不能再有 pause：倒计时由脚本负责，两层等待是双重卡顿。"""
+        raw = io.open(os.path.join(ROOT, "close-wb-proxy.bat"), "rb").read()
+        self.assertNotIn(b"pause", raw, "the bat must not wait for a keypress")
+
+    def _close_source(self):
+        with io.open(os.path.join(ROOT, "close_wb_proxy.py"),
+                     encoding="utf-8") as fh:
+            return fh.read()
 
     def test_the_bat_launcher_is_ascii_and_crlf(self):
         with io.open(os.path.join(ROOT, "close-wb-proxy.bat"), "rb") as fh:

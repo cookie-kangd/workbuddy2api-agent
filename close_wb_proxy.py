@@ -43,18 +43,13 @@ DEFAULT_PASSWORD = "admin"
 # service is already running and answers fast.
 POLL_ATTEMPTS = 15
 POLL_INTERVAL = 0.6
+# 收尾倒计时：双击 .bat 时给用户一眼看清结果的时间，然后窗口自己关掉。
+# 由 --countdown 覆盖（0 = 立即退出，留给已经在脚本里调用的人）。
+DEFAULT_COUNTDOWN = 3
 
 # 本地回环请求绝不走代理：环境里若有全局 HTTP(S)_PROXY，请求会被代理转发，
 # 服务退出时看到的就是代理层的 502 报错，而不是干净的「服务已关闭」。
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-
-def _ask(prompt):
-    """Read one line from stdin, tolerating a closed or piped stdin."""
-    try:
-        return input(prompt)
-    except (EOFError, KeyboardInterrupt):
-        return ""
 
 
 def _post(url, payload, headers=None, timeout=10):
@@ -72,6 +67,28 @@ def _get(url, timeout=5):
         return resp.status, resp.read()
 
 
+def countdown(seconds):
+    """Print the result, then close the window after `seconds`.
+
+    Double-clicking close-wb-proxy.bat must not need a keypress: the console
+    stays long enough to read the verdict and disappears on its own. The
+    countdown runs even when stdin is closed (a .bat launch), so it never
+    waits for input that will not come.
+    """
+    if seconds <= 0:
+        return
+    try:
+        for left in range(int(seconds), 0, -1):
+            # \r 让倒计时停在原地，不刷一屏；flush 否则管道里看不到。
+            print("\r[close] 窗口将在 %d 秒后自动关闭...   " % left,
+                  end="", flush=True)
+            time.sleep(1)
+        print("\r[close] 再见。                                  ")
+    except (KeyboardInterrupt, OSError):
+        # Ctrl+C 或窗口被提前关掉：静默退出，不报堆栈。
+        pass
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Stop a running WorkBuddy proxy the way the dashboard "
@@ -82,8 +99,9 @@ def main(argv=None):
     parser.add_argument("--password", default=os.environ.get(
         "WB_PANEL_PASSWORD", "") or DEFAULT_PASSWORD,
         help="panel password; also read from WB_PANEL_PASSWORD")
-    parser.add_argument("--yes", "-y", action="store_true",
-                        help="skip the confirmation prompt")
+    parser.add_argument("--countdown", type=int, default=DEFAULT_COUNTDOWN,
+                        help="seconds to show the result before the window "
+                             "closes itself (default %(default)s, 0 = now)")
     args = parser.parse_args(argv)
 
     base = "http://127.0.0.1:%d" % args.port
@@ -102,13 +120,8 @@ def main(argv=None):
     except Exception:
         print("[close] no service is listening on port %d - nothing to stop."
               % args.port)
+        countdown(args.countdown)
         return 0
-
-    if not args.yes:
-        reply = _ask("Stop the WorkBuddy proxy on port %d? [y/N] " % args.port)
-        if reply.strip().lower() not in ("y", "yes"):
-            print("[close] cancelled.")
-            return 1
 
     # Panel session, exactly like the browser login form.
     try:
@@ -120,14 +133,17 @@ def main(argv=None):
             print("[close] login failed: %d %s" % (exc.code, exc.reason))
         print("        pass the right one with --password <pw> or set "
               "WB_PANEL_PASSWORD.")
+        countdown(args.countdown)
         return 1
     except Exception as exc:
         print("[close] could not reach the panel: %s" % exc)
+        countdown(args.countdown)
         return 1
 
     token = session.get("token") or ""
     if not token:
         print("[close] the panel did not hand back a session token.")
+        countdown(args.countdown)
         return 1
 
     # The power button. The service answers first and exits about 0.4s later,
@@ -139,6 +155,7 @@ def main(argv=None):
         # 进程退出会掐断连接（ConnectionResetError / BadStatusLine），这不是
         # 失败：真正停没停由下面的 /health 判定。
         print("[close] shutdown sent (connection closed early: %s)." % exc)
+        countdown(args.countdown)
     else:
         print("[close] shutdown accepted: %s"
               % ("ok" if reply.get("ok") else "see the dashboard"))
@@ -151,11 +168,13 @@ def main(argv=None):
         except Exception:
             print("[close] stopped. Port %d is free." % args.port)
             print("        start it again with start-wb-proxy.bat.")
+            countdown(args.countdown)
             return 0
     print("[close] the shutdown request was sent but the service is still "
           "answering on port %d." % args.port)
     print("        it may be supervised by a container or service manager; "
           "stop it there.")
+    countdown(args.countdown)
     return 1
 
 

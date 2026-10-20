@@ -4,6 +4,9 @@ rem  WorkBuddy international proxy - stop the service
 rem
 rem  Usage: double-click, or  close-wb-proxy.bat [port]
 rem
+rem  Double-click runs the close with no prompt: the script shows the
+rem  verdict, counts down 3 seconds, then the window closes itself.
+rem
 rem  Since the silent launch the service runs as pythonw with no
 rem  console window, so closing any window does not stop it and
 rem  the only way was the dashboard power button. This does the
@@ -66,18 +69,15 @@ if "%RC%"=="0" (
   echo and pass it, or set WB_PANEL_PASSWORD first.
 )
 echo.
-pause
 exit /b %RC%
 
 :no_script
 echo Could not find close_wb_proxy.py next to this file.
 echo.
-pause
 exit /b 2
 
 :no_python
 echo No Python runtime found.
 echo Put the bundled "python" folder next to this file, or install Python 3.9+.
 echo.
-pause
 exit /b 3
