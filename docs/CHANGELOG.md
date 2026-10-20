@@ -664,6 +664,56 @@
 
 - **GPT 系列流式 Token 与生成速度修复**：忽略中间帧全 0 的 usage 占位，并加入断流 Fallback 估算，修复 `gpt-5.6-luna` / `gpt-6-astra` 等模型输入输出为 0、生成速度缺失的问题。
 
+## v0.1.21 — 同步上游 v1.7.17
+
+合并上游 `v1.7.17`（46 个提交，53 个文件）。这一段集中在**长尾问题修复**：断流被伪装成正常结束、
+模型级错误拖垮整池、关限额不生效等。Fork 独立发行线保持：版本仍从 `0.1.x` 起算，面板更新检查与
+阿里云 systemd 部署链路不回归，Release 仍只发 Windows 便携包。
+
+### 同步过来（错误修复 / 安全加固 / 性能优化）
+
+- **流式断流重试**（#522）：首字节前断流在同一账号、同一出口重开一次（递归复用已发出的响应头），
+  不再把断流伪装成 `[DONE]` 正常结束。fork 的 chunked 帧头保留，重试时不重复发送。
+- **模型级 5xx 不再熔断整池**（#499）：`11134` / `11102` / `11150` / `11158` / `11129` 等先解析
+  上游 body 的 `code`，命中时只停手并原样返回 500，不再记 fails / 熔断；`WB_MODEL_SCOPED_ERRORS_PENALIZE=1`
+  可恢复旧行为。普通 500 仍按账号故障处理。
+- **关闭日限额立即生效**（#519）：设置保存路径把三条 `daily_*` 护栏无条件推一次（值为 0 也推）。
+- **Codex 一键配置内联 bearer token**（#513）：`auth.json` 不再兜底，provider 表直写
+  `experimental_bearer_token` 并清除旧 `env_key`。
+- **只有 reasoning 的回复改为 failed**（#508）：流式发 `response.failed`，非流式返回 502，不再伪装
+  completed；新增 `WB_DEFAULT_REASONING_EFFORT`。
+- **积分包到期显示统一按 no_expiry**（#474）；**OpenRouter 估价可按模型校准**（#514）。
+- **成长任务手动领取**（#507）：新增 `POST /tasks/claim`，任务区「自动领取」默认开。
+- **免费账号不可用标注**（#505）：上游 11158 写入 `accounts/model_entitlements.json`，`/v1/models`
+  带 entitlement 字段，24 小时自动过期。
+- **排程只在自己的配置小时执行**（#515）：此前命中任意配置小时就把所有任务一起跑。
+- **吞吐量改用 completion tokens**（#509）；**Anthropic input_tokens 消除缓存双计**；
+  **合成流式 chunk 用动态唯一 id**；**流式 usage 改为末尾空 choices 帧**。
+- **全池刷积分加 CAS 单飞与 800~1200ms 节奏护栏**：避免前端每 15 秒重试把上游打满。
+- **面板与日志出口统一脱敏手机号**：面板 JSON、日志看板、stderr、`/logs/export` 与账号导出。
+- **一键部署区分 local / lan / public**（#512）：`WB_DEPLOY_MODE`，local/public 只把 8788 绑到
+  `127.0.0.1`；fork 用源码本地构建、compose 随仓库分发，脚本按模式改写其 ports。
+- **DSH 一键配置直写 profile 补丁层**并放宽 wb-proxy 限流重试（修「对话到一半链接中断」）。
+- **网关模型清单可勾选**：模型 ID 前复选框、表头全选 / 全不选 / 反选，一键配置只写勾选的模型；
+  fork 在此之上叠加按 Key 出口过滤——cn 绑定的 Key 不会被写入只有国际版才有的模型。
+- 移动端布局修复一批；日志写失败不再打死请求；瞬时故障重试提前退出修复；
+  Python 3.9 HTTP 错误分类兼容。
+
+### Fork 保留（不同步上游）
+
+- 第三方上游路由仍最先于账号池，并转发上游新增的 `pin_account` 参数。
+- Codex 目录文件 `model_catalog_json` 与 `requires_openai_auth=False` 为 fork 独有，保留；
+  纯 CLI / 测试场景未传 catalog 路径时不再报错。
+- 「最近请求」表同时保留 fork 的「上游」列与上游的「API Key」列。
+- 面板更新检查与阿里云 systemd 部署链路不回归；`close-wb-proxy.bat` / `close_wb_proxy.py`
+  未受本次同步影响，已端到端回归。
+
+### 验证
+
+- 完整套件 **191 passed, 0 failed**（143 Python + 48 JS）。
+- 运行时：网关启动正常、10 个端点全 200、`close_wb_proxy.py --yes` 关闭成功且端口释放。
+- `check_clean_checkout.py` clean。
+
 ## v0.1.20 — 同步上游 v1.7.14 – v1.7.16
 
 合并上游 `v1.7.16`（44 个提交，54 个文件）。这一段上游集中在**风控加固、协议兼容与身份对齐**：
