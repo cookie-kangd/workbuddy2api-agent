@@ -149,6 +149,21 @@ check("non-deepseek models are untouched",
       "thinking" not in non_deepseek and "reasoning_effort" not in non_deepseek,
       (non_deepseek.get("thinking"), non_deepseek.get("reasoning_effort")))
 
+try:
+    os.environ["WB_DEFAULT_REASONING_EFFORT"] = "off"
+    off_body = deepseek_body()
+    check("the default effort can be turned off",
+          "reasoning_effort" not in off_body, off_body.get("reasoning_effort"))
+
+    os.environ["WB_DEFAULT_REASONING_EFFORT"] = "catalog"
+    catalog_body = deepseek_body()
+    expected = P.model_default_effort("deepseek-v4.1-flash")
+    check("catalog mode uses only the catalog default",
+          catalog_body.get("reasoning_effort") == expected,
+          (catalog_body.get("reasoning_effort"), expected))
+finally:
+    os.environ.pop("WB_DEFAULT_REASONING_EFFORT", None)
+
 print()
 print("[3] tool pairing: repack results, drop orphans")
 
@@ -346,6 +361,36 @@ check("stream_responses_events drops the truncated done event",
       "function_call_arguments.done" not in resp_raw, resp_raw[-400:])
 check("stream_responses_events marks the response incomplete",
       '"status": "incomplete"' in resp_raw)
+
+reason_only_stream = [
+    sse_line({"choices": [{"delta": {"reasoning_content": "thinking..."}}]}),
+    sse_line({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
+]
+reason_holder = {"usage": None}
+reason_only_raw = b"".join(P.stream_responses_events(
+    iter(reason_only_stream), "m", reason_holder)).decode("utf-8")
+check("a reasoning-only stream emits response.failed",
+      "response.failed" in reason_only_raw, reason_only_raw[-500:])
+check("a reasoning-only stream does not emit response.completed",
+      "response.completed" not in reason_only_raw)
+check("a reasoning-only stream marks the holder",
+      reason_holder.get("empty_reasoning") is True)
+
+reason_chat = {"choices": [{"message": {
+    "role": "assistant", "content": "", "reasoning_content": "thinking"},
+    "finish_reason": "stop"}], "usage": {}}
+reason_resp = P.chat_to_response(reason_chat, "m", set(), {}, {})
+check("chat_to_response keeps the reasoning item",
+      any(o.get("type") == "reasoning" for o in reason_resp.get("output") or []))
+check("a reasoning-only Responses object is rejected",
+      P.reasoning_only_response(reason_resp))
+
+normal_chat = {"choices": [{"message": {
+    "role": "assistant", "content": "answer"}, "finish_reason": "stop"}],
+    "usage": {}}
+normal_resp = P.chat_to_response(normal_chat, "m", set(), {}, {})
+check("a normal answer is not rejected",
+      not P.reasoning_only_response(normal_resp))
 
 print()
 print("[4] integration: build_upstream_body applies the repairs")

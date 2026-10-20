@@ -118,6 +118,14 @@ class GrowthPrereqTests(unittest.TestCase):
         self.assertEqual(seq[first_accept], ("accept", ("create_canvas",)))
         self.assertGreaterEqual(res["earned_credit"], 300)
 
+    def test_manual_claim_leaves_completed_tasks_unclaimed(self):
+        self._stub()
+        res = T.run_growth_tasks(FakeAccount(), gap=0, claim=False)
+        self.assertFalse([e for e in self.events if e[0] == "claim"], self.events)
+        self.assertEqual(res["earned_credit"], 0)
+        # first_buddy 已完成但没领奖，状态停在 completed，等用户手动领取。
+        self.assertEqual(self.state["fb"], 1)
+
     def test_specs_updated(self):
         self.assertEqual(T.TASK_SPECS["first_buddy"]["kind"], "chat")
         self.assertEqual(T.TASK_SPECS["first_buddy"]["reward"], 300)

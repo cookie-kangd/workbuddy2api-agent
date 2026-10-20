@@ -52,6 +52,16 @@ set "PYW=pyw"
 goto run_silent
 
 :run_silent
+rem The headless service writes its output to the null device, so a refused
+rem start ("a proxy already runs on this port") would otherwise leave this
+rem window vanishing with no explanation - it reads exactly like a crash.
+rem Ask first, in THIS window, reusing the same check the service runs.
+call :find_console_python
+if not defined VIEWERPY goto start_headless
+"%VIEWERPY%" "%SCRIPT%" %PYARGS% --probe-only
+if not errorlevel 3 goto refused_start
+
+:start_headless
 rem Launch the service headless: no console window, nothing in the
 rem taskbar, and closing any window never stops it.
 start "" "%PYW%" "%SCRIPT%" %PYARGS%
@@ -60,27 +70,18 @@ rem Open a live log viewer in its own console window. The viewer
 rem waits quietly while the service starts and closes itself when
 rem the service is shut down. pythonw has no window, so a console
 rem python is needed for the viewer.
-if exist "%HERE%python\python.exe" goto viewer_bundled
-if exist "%HERE%.venv\Scripts\python.exe" goto viewer_venv
-python --version >nul 2>nul
-if not errorlevel 1 goto viewer_path
-exit /b 0
-
-:viewer_bundled
-set "VIEWERPY=%HERE%python\python.exe"
-goto viewer_go
-
-:viewer_venv
-set "VIEWERPY=%HERE%.venv\Scripts\python.exe"
-goto viewer_go
-
-:viewer_path
-set "VIEWERPY=python"
-goto viewer_go
-
-:viewer_go
+if not defined VIEWERPY exit /b 0
 if not exist "%HERE%console_tail.py" exit /b 0
 start "" "%VIEWERPY%" "%HERE%console_tail.py" --port %PORT%
+exit /b 0
+
+:refused_start
+echo.
+echo  Nothing was started from this window - read the lines above.
+echo  To restart the copy that is already running, use
+echo  restart-wb-proxy.bat (it stops the old ones first).
+echo.
+pause
 exit /b 0
 
 :use_python
@@ -170,3 +171,35 @@ echo.
 echo.
 echo [server exited]
 pause
+exit /b 0
+
+rem ===========================================================
+rem  Console python lookup, shared by the start-up probe and the
+rem  log viewer. Invoked with "call :find_console_python"; leaves
+rem  VIEWERPY unset when no usable console python exists.
+rem ===========================================================
+:find_console_python
+set "VIEWERPY="
+if exist "%HERE%python\python.exe" goto fcp_bundled
+if exist "%HERE%.venv\Scripts\python.exe" goto fcp_venv
+python --version >nul 2>nul
+if not errorlevel 1 goto fcp_path
+py --version >nul 2>nul
+if not errorlevel 1 goto fcp_py
+goto :eof
+
+:fcp_bundled
+set "VIEWERPY=%HERE%python\python.exe"
+goto :eof
+
+:fcp_venv
+set "VIEWERPY=%HERE%.venv\Scripts\python.exe"
+goto :eof
+
+:fcp_path
+set "VIEWERPY=python"
+goto :eof
+
+:fcp_py
+set "VIEWERPY=py"
+goto :eof

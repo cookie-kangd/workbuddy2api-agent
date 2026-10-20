@@ -125,6 +125,11 @@ El.prototype.cloneNode = function(deep){
 
 /* 只支持本模块用到的选择器形状：tag、.class、.class.class、[id] */
 function matches(el, sel){
+  // 真实 DOM 的 querySelectorAll 接受逗号分隔的选择器列表（'em, .foo'），
+  // 桩以前只认单个 tag.class[id]，遇到列表会把整串当标签名、一个都匹配不上。
+  if(sel.indexOf(',') !== -1){
+    return sel.split(',').some(part => matches(el, part.trim()));
+  }
   const hasId = /\[id\]/.test(sel);
   const parts = sel.replace(/\[id\]/g, '').split('.');
   const tag = parts[0] ? parts[0].toUpperCase() : null;

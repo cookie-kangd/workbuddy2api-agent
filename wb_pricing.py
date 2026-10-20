@@ -61,7 +61,7 @@ _JSON = r'''
     "sources": {
       "openrouter": "https://openrouter.ai/api/v1/models"
     },
-    "note": "单价均为「每百万 token」的美元价，取自 OpenRouter 公布的模型级价（同一模型可能由多家 provider 承接，取它默认路由那家的公布价，不是各家最低价）；按 usd_cny 折算成人民币；按条件定价的模型（输入长度阈值或 UTC 时段）另带 bands，按每条请求的输入长度与时间取档。OpenRouter 的缓存写入价与音频价，本地 usage 日志没有对应的 token 数，未计入。"
+    "note": "单价均为「每百万 token」的美元价，取自 OpenRouter 公布的模型级价（OpenRouter 定义为该模型 top provider 的价，多 provider 模型通常接近最低档；它是参考价，不等于 WorkBuddy 官方价或结算价）；按 usd_cny 折算成人民币；按条件定价的模型（输入长度阈值或 UTC 时段）另带 bands，按每条请求的输入长度与时间取档。OpenRouter 的缓存写入价与音频价，本地 usage 日志没有对应的 token 数，未计入。"
   },
   "models": {
     "deepseek-v4.1-flash": {
@@ -948,6 +948,9 @@ def compute_row(row, pricing=None):
     hit = _pick(rate, "input_cache_hit", "input_cache_miss")
     out_rate = _pick(rate, "output")
     cny = (uncached * miss + cached * hit + output * out_rate) / unit * factor
+    markup = markup_for(row.get("model"))
+    if markup != 1.0:
+        cny *= markup
     return {"cny": cny, "known": True, "band": band, "rates": rate}
 
 
@@ -1054,11 +1057,11 @@ WEEKDAY_KEYS = ("monday", "tuesday", "wednesday", "thursday", "friday",
 WEEKDAY_SHORT = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 _NOTE = ("单价均为「每百万 token」的美元价，取自 OpenRouter 公布的模型级价"
-         "（同一模型可能由多家 provider 承接，取它默认路由那家的公布价，"
-         "不是各家最低价）；按 usd_cny 折算成人民币；按条件定价的模型"
-         "（输入长度阈值或 UTC 时段）另带 bands，按每条请求的输入长度与"
-         "时间取档。OpenRouter 的缓存写入价与音频价，本地 usage 日志没有"
-         "对应的 token 数，未计入。")
+         "（OpenRouter 定义为该模型 top provider 的价，多 provider 模型"
+         "通常接近最低档；它是参考价，不等于 WorkBuddy 官方价或结算价）；"
+         "按 usd_cny 折算成人民币；按条件定价的模型（输入长度阈值或 UTC "
+         "时段）另带 bands，按每条请求的输入长度与时间取档。OpenRouter 的"
+         "缓存写入价与音频价，本地 usage 日志没有对应的 token 数，未计入。")
 
 
 def per_million(value):
@@ -1522,6 +1525,55 @@ def runtime_overrides():
     with _policy_lock:
         _runtime_overrides_cache.update({"key": key, "data": data})
     return data
+
+
+def markup_path():
+    """Per-model calibration factor for the OpenRouter estimate.
+
+    OpenRouter's model-level price is the top provider's, which is usually the
+    cheapest one; a deployment that wants the estimate to track the vendor's
+    official price can scale each model without rewriting the policy history.
+    The file is a plain {model: factor} map next to pricing-overrides.json.
+    """
+    return os.path.join(os.path.dirname(overrides_path()), "pricing-markup.json")
+
+
+_markup_cache = {"key": None, "data": {}}
+
+
+def _read_markup():
+    data = {}
+    try:
+        with open(markup_path(), encoding="utf-8") as fh:
+            loaded = json.load(fh)
+        if isinstance(loaded, dict):
+            for mid, value in loaded.items():
+                try:
+                    factor = float(value)
+                except (TypeError, ValueError):
+                    continue
+                mid = str(mid or "").strip()
+                if mid and factor > 0:
+                    data[mid] = factor
+    except Exception:
+        data = {}
+    return data
+
+
+def markup_for(model):
+    """The calibration factor for `model` (1.0 when nothing is configured)."""
+    path = markup_path()
+    try:
+        key = (path, os.path.getmtime(path), os.path.getsize(path))
+    except OSError:
+        return 1.0
+    with _policy_lock:
+        if _markup_cache["key"] == key:
+            return _markup_cache["data"].get(model, 1.0)
+    data = _read_markup()
+    with _policy_lock:
+        _markup_cache.update({"key": key, "data": data})
+    return data.get(model, 1.0)
 
 
 def save_runtime_override(model, or_id):
@@ -2126,7 +2178,8 @@ _WEEKDAY_CN = {"mon": "周一", "tue": "周二", "wed": "周三", "thu": "周四
 
 # 明细字段的固定顺序，未定价时整组给 None，不编 0。
 _DETAIL_KEYS = ("rates", "unit", "currency", "usd_cny", "or_id", "via",
-                "inherited_from", "override_from", "band_note", "via_derived")
+                "inherited_from", "override_from", "band_note", "via_derived",
+                "markup", "markup_from")
 
 
 def _hhmm(value):
@@ -2275,6 +2328,11 @@ def cost_for_row(row, details=True, enabled=None):
         cost["backfilled"] = backfilled
         if details:
             cost.update(_details_for(cost, policy_entry(policy), policy, model))
+            if cost.get("known"):
+                markup = markup_for(model)
+                cost["markup"] = markup
+                cost["markup_from"] = ("pricing-markup.json"
+                                       if markup != 1.0 else None)
         return cost
     doc = load_pricing()
     entry = (doc.get("models") or {}).get(model)
@@ -2284,6 +2342,11 @@ def cost_for_row(row, details=True, enabled=None):
     cost["backfilled"] = False
     if details:
         cost.update(_details_for(cost, entry, doc.get("meta"), model))
+        if cost.get("known"):
+            markup = markup_for(model)
+            cost["markup"] = markup
+            cost["markup_from"] = ("pricing-markup.json"
+                                   if markup != 1.0 else None)
     return cost
 
 

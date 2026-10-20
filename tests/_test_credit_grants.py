@@ -177,6 +177,10 @@ print("[5] 处理函数：200 + 同一份载荷")
 
 
 class FakeHandler:
+    # 面板端点现在走 _json_panel（出口脱敏），替身只接管最底层的 _json，
+    # 让真实的脱敏逻辑照常执行——否则这条用例就不再代表线上行为。
+    _json_panel = P.Handler._json_panel
+
     def __init__(self):
         self.response = None
 

@@ -227,6 +227,108 @@ class _OpenUpstreamHarness(unittest.TestCase):
             wb_proxy.POOL, A.urlopen = old_pool, old_urlopen
 
 
+class RetryRecoveryTests(_OpenUpstreamHarness):
+    """A pool rotation must leave the final real request attempt available."""
+
+    def assert_recovers(self, failures, count=1, egress_backoff=False):
+        for index in range(count):
+            self.add_account("u-retry-%d" % index)
+        calls = []
+
+        def urlopen(req, timeout=30, proxy=""):
+            calls.append(req.full_url)
+            if len(calls) <= len(failures):
+                raise failures[len(calls) - 1]
+            return _Response(_Sock())
+
+        raised, result = self.run_request(urlopen, egress_backoff=egress_backoff)
+        self.assertIsNone(raised)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(calls), len(failures) + 1)
+        self.assertTrue(self.sleeps, "transient retries must back off")
+        result[0].close()
+
+    @staticmethod
+    def reset_error():
+        return urllib.error.URLError(ConnectionResetError(10054, "连接已中断"))
+
+    @staticmethod
+    def timeout_error():
+        return urllib.error.URLError(TimeoutError("The write operation timed out"))
+
+    def test_single_windows_reset_recovers(self):
+        self.assert_recovers([self.reset_error()])
+
+    def test_last_attempt_survives_two_account_rotation(self):
+        self.assert_recovers([self.timeout_error(), self.timeout_error()], count=2)
+
+    def test_timeout_then_windows_reset_recovers(self):
+        self.assert_recovers([self.timeout_error(), self.reset_error()], count=2)
+
+    def test_windows_resets_recover_with_egress_backoff(self):
+        self.assert_recovers([self.reset_error(), self.reset_error()], count=2,
+                             egress_backoff=True)
+        self.assertTrue(all(account.fails == 0 for account in self.accounts))
+
+    def test_local_network_recovers_after_pool_rotation(self):
+        failures = [urllib.error.URLError(OSError(-3, "Temporary failure in name resolution"))
+                    for _ in range(2)]
+        self.assert_recovers(failures, count=2)
+        self.assertTrue(all(account.fails == 0 for account in self.accounts))
+
+    def test_persistent_transport_failure_is_bounded_and_charged_once(self):
+        for index in range(2):
+            self.add_account("u-bounded-%d" % index)
+        calls = []
+
+        def urlopen(req, timeout=30, proxy=""):
+            calls.append(1)
+            raise self.timeout_error()
+
+        raised, result = self.run_request(urlopen)
+        self.assertIsNotNone(raised)
+        self.assertIsNone(result)
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(account.degrade_count == 1 for account in self.accounts))
+
+    def test_persistent_local_network_failure_is_bounded(self):
+        account = self.add_account("u-offline")
+        calls = []
+
+        def urlopen(req, timeout=30, proxy=""):
+            calls.append(1)
+            raise urllib.error.URLError(OSError(-3, "Temporary failure in name resolution"))
+
+        raised, result = self.run_request(urlopen)
+        self.assertIsInstance(raised, wb_proxy.LocalNetworkError)
+        self.assertIsNone(result)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(account.fails, 0)
+
+    def test_connection_refused_cools_each_account_without_repick(self):
+        # A refused connection (dead per-account proxy) is not a blip: each
+        # account is tried once, charged and cooled for 60s, and the pool is
+        # not cleared for another round.
+        for index in range(2):
+            self.add_account("u-refused-%d" % index)
+        calls = []
+
+        def urlopen(req, timeout=30, proxy=""):
+            calls.append(1)
+            raise urllib.error.URLError(
+                ConnectionRefusedError(10061, "目标计算机积极拒绝"))
+
+        started = time.time()
+        raised, result = self.run_request(urlopen)
+        self.assertIsNotNone(raised)
+        self.assertNotIsInstance(raised, wb_proxy.LocalNetworkError)
+        self.assertIsNone(result)
+        self.assertEqual(len(calls), 2)
+        for account in self.accounts:
+            self.assertEqual(account.fails, 1)
+            self.assertGreaterEqual(account.cooldown_until, started + 59)
+
+
 class SwitchOnTests(_OpenUpstreamHarness):
     """With egress_backoff_enabled on, the path - not the account - is charged."""
 

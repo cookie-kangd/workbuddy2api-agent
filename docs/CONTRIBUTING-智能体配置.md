@@ -70,6 +70,16 @@ ctx = {
 }
 ```
 
+### 3.3 客户端专属载荷语义（以 DSH 为例）
+
+生成函数只写「客户端真正会读」的字段；客户端不认的能力字段一律不写。以 DSH 的 `llm-pi-ai` provider 条目为例，当前写入的三类语义都与「能被客户端接受并生效」直接相关：
+
+- **输入模态**：只认模型条目的 `input: [text, image]`（`inputModalities`），不认 `supportsVision`，也不读 `/v1/models` 的 `capabilities`。所以只有网关宣告 `capabilities.vision` 的模型才写 `image`。
+- **思考档位**：只认模型条目的 `reasoningEfforts`（键=档位、值=发给网关的拼写），不读 `/v1/models` 的 `reasoning_efforts`。
+- **限流重试**：provider 条目的 `retryPolicy` 决定 DSH 在失败请求上等多久（见 `wb_agents.DSH_RETRY_POLICY`）。DSH 默认 normal / 5 次 / 退避 500ms→10s，合计不到 16 秒；WorkBuddy 的 429 冷却约一分钟，默认值会在冷却结束前用光重试，回合以 `RATE_LIMIT` 失败（用户看到的是「对话到一半链接中断」）。一键配置给 `wb-proxy` 写到 8 次 / 2s 起 / 封顶 30s（合计约 2 分半），字段与取值按 `@deepseek-ai/dsh-llm` 的 `RetryPolicySchema`；`retryableCodes` 不写，沿用 DSH 默认（含 `RATE_LIMIT`，429 落在其中）。只影响 `wb-proxy`，其它 provider 不受影响。
+
+同一份 provider 字典会分别写进各 profile 的 `cordis.patch.yml`（或 legacy `settings.yaml`），因此 `_apply_dsh()` 为每个 profile 做深拷贝（`json.loads(json.dumps(...))`），避免共享可变子表。
+
 ---
 
 ## 4. 如何新增一个客户端支持（分步指南）
@@ -183,7 +193,7 @@ python tests/run_all.py
 - **核心目的**：无论用户后续在看板上切换多少次 API Key 或默认模型，一键还原时**始终还原至首次接入网关前的干净原始配置**，绝不会因多次 apply 把修改后的配置误作为备份。
 
 ### 6.3 两阶段事务写入与回滚
-对于涉及多个文件的客户端（如 DSH 涉及 `settings.yaml` 与 `.credentials.yaml`）：
+对于涉及多个文件的客户端（如 DSH 涉及各 profile 的 `cordis.patch.yml`（或 legacy `settings.yaml`）与 `.credentials.yaml`）：
 - **阶段一 (Stage & Backup)**：检查所有目标文件，在内存中暂存生成的新内容，对现有文件生成快照备份；
 - **阶段二 (Atomic Write)**：使用 `.tmp` 临时文件 + `os.replace` 原子写入目标文件；
 - **异常回滚**：若写入过程中任何一个文件发生 IO 异常或权限不足，立即触发异常捕获逻辑，将已写入成功的文件按原备份原子还原（若原本不存在则彻底删除），防止在用户机器上留下半套破损配置或脱离状态账本的孤儿文件。

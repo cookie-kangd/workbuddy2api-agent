@@ -34,6 +34,13 @@ from _isolated_dirs import isolated_data_dirs  # noqa: E402  (its own data root)
 
 _TMP_ENV = isolated_data_dirs("wb-agents-cli-")
 
+# 本机回环请求不该走环境里的 http_proxy：CI 上没有代理，但开发者机器上常有——一旦被
+# 代理接管，CLI 会拿到 502 而不是「连不上网关」，上游连接复用也会整条退化回原路径，
+# 两个套件都会假红。产品尊重 http_proxy 是对的（公司内网要用），所以在这里隔离。
+os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ["NO_PROXY"] = os.environ["no_proxy"]
+
+
 import wb_agents  # noqa: E402
 import wb_proxy  # noqa: E402
 

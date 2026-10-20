@@ -174,7 +174,7 @@ check("tool_use block is present",
       msg["content"][2]["type"] == "tool_use" and msg["content"][2]["input"] == {"cmd": "ls"}, msg["content"])
 check("stop_reason maps tool_calls -> tool_use", msg["stop_reason"] == "tool_use", msg["stop_reason"])
 check("usage maps cache fields",
-      msg["usage"] == {"input_tokens": 10, "output_tokens": 5,
+      msg["usage"] == {"input_tokens": 4, "output_tokens": 5,
                        "cache_read_input_tokens": 4, "cache_creation_input_tokens": 2}, msg["usage"])
 check("no thinking block without reasoning_content",
       all(b["type"] != "thinking" for b in

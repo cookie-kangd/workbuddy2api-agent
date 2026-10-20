@@ -170,14 +170,22 @@ t1 = A.toml_upsert_top_key(t1, "model_provider", "wb-proxy")
 t1 = A.toml_upsert_top_key(t1, "model", "m1")
 t1 = A.toml_upsert_table(t1, "model_providers.wb-proxy",
                          {"name": "WB Proxy", "base_url": "http://x/v1",
-                          "wire_api": "responses", "env_key": "OPENAI_API_KEY"})
+                          "wire_api": "responses", "experimental_bearer_token": "k"})
 t2 = t1
 t2 = A.toml_upsert_top_key(t2, "model_provider", "wb-proxy")
 t2 = A.toml_upsert_top_key(t2, "model", "m1")
 t2 = A.toml_upsert_table(t2, "model_providers.wb-proxy",
                          {"name": "WB Proxy", "base_url": "http://x/v1",
-                          "wire_api": "responses", "env_key": "OPENAI_API_KEY"})
+                          "wire_api": "responses", "experimental_bearer_token": "k"})
 check("second application changes nothing", t1 == t2, (t1, t2))
+
+t3 = A.toml_upsert_table("", "model_providers.wb-proxy",
+                         {"name": "WB", "env_key": "OPENAI_API_KEY"})
+t3 = A.toml_drop_table_keys(t3, "model_providers.wb-proxy", ("env_key",))
+check("env_key is removed when the inline token takes over",
+      "env_key" not in t3 and 'name = "WB"' in t3, repr(t3))
+check("dropping an absent key is a no-op",
+      A.toml_drop_table_keys(t3, "model_providers.wb-proxy", ("env_key",)) == t3)
 
 print()
 print("[10] toml table upsert keeps other keys in the same table")
@@ -1064,6 +1072,28 @@ if os.name == "nt":
     check("隐藏窗口后 PowerShell 仍返回输出", _out == "hidden-ok", _out)
     check("隐藏窗口后进程表仍可读", isinstance(_A.process_snapshot(), list),
           "process_snapshot 不再是 list")
+
+print()
+print("[32] codex one-click config no longer depends on an env var (issue #513)")
+seed_dir = tempfile.mkdtemp(prefix="codex513-")
+seed_cfg = os.path.join(seed_dir, "config.toml")
+seed_auth = os.path.join(seed_dir, "auth.json")
+with open(seed_cfg, "w", encoding="utf-8") as fh:
+    fh.write('model_provider = "wb-proxy"\n\n[model_providers.wb-proxy]\nname = "WB Proxy"\n'
+             'base_url = "http://old/v1"\nwire_api = "responses"\n'
+             'env_key = "OPENAI_API_KEY"\nenv_key_instructions = "export it"\n')
+codex_files = A._apply_codex({"config": seed_cfg, "auth": seed_auth},
+                             {"base_url_v1": "http://new/v1", "api_key": "sk-inline",
+                              "model": "m1"})
+codex_out = codex_files[seed_cfg]
+check("inline bearer token is written",
+      'experimental_bearer_token = "sk-inline"' in codex_out, codex_out)
+check("stale env_key and its instructions are removed",
+      "env_key" not in codex_out, codex_out)
+check("top-level keys survive the cleanup",
+      'model_provider = "wb-proxy"' in codex_out and 'model = "m1"' in codex_out,
+      codex_out)
+shutil.rmtree(seed_dir, ignore_errors=True)
 
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

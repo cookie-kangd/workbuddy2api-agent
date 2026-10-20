@@ -44,6 +44,7 @@ const SETTINGS = {
   pricing_refresh_minutes: 5,
   section_max_height: 640,
   auto_switch_product: true,
+  identity: {private_data: 'false'},
   daily_chat_web: false,
   daily_chat_web_timeout: 300,
   daily_chat_web_timeout_default: 120,
@@ -151,6 +152,8 @@ global.__toasts = toasts;
   assert.equal(element('setAccountsDir').textContent, '/data/accounts');
   assert.equal(element('setPricingState').textContent, '(每 5 分钟)');
   assert.equal(element('setAutoSwitch').checked, true);
+  assert.equal(element('setPrivateData').value, 'false');
+  assert.equal(element('setPrivateDataState').textContent, '(false)');
   assert.equal(element('setDailyChatWeb').checked, false);
   // 网页通道重试：字段缺失时按默认（开、3 次）显示，次数框写回 3，状态行把
   // 实际等待序列算出来（300 起、逐轮翻倍）。

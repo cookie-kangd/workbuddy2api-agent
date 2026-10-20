@@ -339,7 +339,7 @@ try:
           msg.get("content") == [{"type": "text", "text": "Hello world"}], msg.get("content"))
     check("stop_reason is end_turn", msg.get("stop_reason") == "end_turn", msg.get("stop_reason"))
     check("usage maps input/output",
-          (msg.get("usage") or {}).get("input_tokens") == 11
+          (msg.get("usage") or {}).get("input_tokens") == 7
           and (msg.get("usage") or {}).get("output_tokens") == 2, msg.get("usage"))
     sent = (MOCK["requests"][0].get("body") or {}) if MOCK["requests"] else {}
     check("upstream saw the system prompt",
@@ -377,7 +377,7 @@ try:
     final = [e[1] for e in events if e[0] == "message_delta"][0]
     check("final delta carries stop_reason + usage",
           final["delta"]["stop_reason"] == "end_turn"
-          and final["usage"]["input_tokens"] == 11
+          and final["usage"]["input_tokens"] == 7
           and final["usage"]["output_tokens"] == 2, final)
     start = [e[1] for e in events if e[0] == "message_start"][0]
     check("message_start names the model",

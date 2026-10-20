@@ -386,7 +386,8 @@ def vscode_trace_headers():
 def build_identity_headers(product, realm, uid, token,
                            conversation_id=None, enterprise_id="",
                            tenant_id="", department="",
-                           model=None, session_key=None, turn_request_id=None):
+                           model=None, session_key=None, turn_request_id=None,
+                           private_data=None):
     """回传这一轮要用的身分标头。product = 'workbuddy' (桌面端), 'vscode' 或 'cli'。
 
     conversation_id 由调用方显式指定时优先使用；留空时按身分处理：
@@ -541,5 +542,12 @@ def build_identity_headers(product, realm, uid, token,
         headers["X-Tenant-Id"] = str(tenant_id or enterprise_id)
     if department:
         headers["X-Department-Info"] = str(department)
+
+    # Issue #516: let the operator declare the data-usage intent instead of
+    # always inheriting the per-identity default. "auto" (or None) changes
+    # nothing; true/false is sent verbatim, including on VSCode CN where the
+    # auto branch omits the header.
+    if private_data in ("true", "false"):
+        headers["X-Private-Data"] = private_data
 
     return headers
